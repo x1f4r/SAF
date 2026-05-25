@@ -1,0 +1,17 @@
+config.json5
+.env
+node_modules/
+target/
+SAF-linux
+SAF-macos
+SAF-win.exe
+*.exe
+testing
+/logs
+SavedData
+/SAF-bot/SavedData
+VPS_SETUP.local.md
+.saf-paused
+.DS_Store
+mod_audit_modrinth.json
+skyblock_merge_report.json

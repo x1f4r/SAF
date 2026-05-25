@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+compiler="${1:-rustc}"
+if [[ "$#" -gt 0 ]]; then
+    shift
+fi
+
+case "$(basename "$compiler")" in
+    clippy-driver*)
+        exec rustup run nightly clippy-driver "$@"
+        ;;
+    rustdoc*)
+        exec rustup run nightly rustdoc "$@"
+        ;;
+    *)
+        exec rustup run nightly rustc "$@"
+        ;;
+esac

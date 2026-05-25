@@ -1,0 +1,97 @@
+{
+  // Copy this file to config.json5 and replace the neutral account names with
+  // Minecraft IGNs for the machine that will run SAF.
+  igns: ["MainAccount", "AltAccount"],
+  defaultIgn: "MainAccount",
+  startDefaultOnly: true,
+
+  // Optional operator IDs. Prefer SAF_DISCORD_ALLOWED_IDS in .env for the live
+  // Discord gateway.
+  discordId: "",
+  allowedIDs: [],
+
+  discordBot: {
+    enabled: false,
+    token: "",
+    clientId: "",
+    guildId: "",
+    ephemeral: true,
+    allowedIDs: [],
+  },
+
+  branding: {
+    name: "SAF",
+    iconUrl: "",
+    playerHeadVersion: "",
+    playerHeadUrlTemplate: "https://crafthead.net/cube/{texture}?size=180&v={version}",
+  },
+
+  externalBackend: {
+    enabled: false,
+    url: "",
+  },
+
+  webhook: [],
+  webhookFormat: "You bought [``{0}``](https://sky.coflnet.com/auction/{7}) for ``{2}`` (``{1}`` profit) in ``{4}ms``",
+  sendAllFlips: [],
+
+  visitFriend: "",
+  useCookie: true,
+  autoCookie: "1h",
+  angryCoopPrevention: false,
+  relist: true,
+  pingOnUpdate: false,
+
+  delay: 250,
+  buyingReadyDelay: 75,
+  waittime: 15,
+  percentOfTarget: ["0", "10b", 97],
+  listHours: ["0", "10b", 48],
+  clickDelay: 125,
+  bedSpam: false,
+  blockUselessMessages: true,
+  roundTo: 6,
+
+  skip: {
+    always: false,
+    minProfit: "25m",
+    profitPercentage: "500",
+    minPrice: "500m",
+    userFinder: true,
+    skins: true,
+  },
+
+  doNotBuy: {
+    tags: [],
+    names: [],
+    enchantments: [],
+    itemEnchantments: [
+      { tag: "LAVA_SHELL_NECKLACE", enchantment: "THE_ONE", level: 5 },
+    ],
+  },
+
+  doNotRelist: {
+    profitOver: "1000t",
+    skinned: false,
+    tags: ["GIANTS_SWORD"],
+    names: [],
+    enchantments: [],
+    itemEnchantments: [
+      { tag: "LAVA_SHELL_NECKLACE", enchantment: "THE_ONE", level: 5 },
+    ],
+    finders: [],
+    stacks: true,
+    pingOnFailedListing: false,
+    drillWithParts: false,
+    expiredAuctions: true,
+    relistMode: "1",
+  },
+
+  autoRotate: {
+    ign: "12r:12f",
+  },
+
+  // SkyCofl session state. Leave blank in the template; rust-cofl-auth-link or
+  // the live runtime can fill config.json5 when authorization is needed.
+  session: "",
+}

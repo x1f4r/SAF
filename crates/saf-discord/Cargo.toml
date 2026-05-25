@@ -1,0 +1,37 @@
+[package]
+name = "saf-discord"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+serenity-controller = ["dep:serenity"]
+webhook-notifier = ["dep:async-trait", "dep:reqwest", "dep:serde_json"]
+
+[dependencies]
+saf-core = { path = "../saf-core" }
+serde.workspace = true
+thiserror.workspace = true
+
+[dependencies.async-trait]
+workspace = true
+optional = true
+
+[dependencies.reqwest]
+workspace = true
+optional = true
+
+[dependencies.serde_json]
+workspace = true
+optional = true
+
+[dependencies.serenity]
+version = "0.12"
+default-features = false
+features = ["cache", "client", "gateway", "http", "model", "rustls_backend"]
+optional = true
+
+[dev-dependencies]
+serde_json.workspace = true

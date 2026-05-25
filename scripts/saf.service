@@ -1,0 +1,21 @@
+[Unit]
+Description=SAF bot tmux supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/saf
+Environment=SAF_DISABLE_TERMINAL=1
+Environment=SAF_TMUX_SESSION=saf
+ExecStart=/opt/saf/saf.sh supervise
+ExecStop=/opt/saf/saf.sh stop-session
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=25
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

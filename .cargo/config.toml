@@ -1,0 +1,3 @@
+[build]
+rustc-wrapper = "./scripts/rust-toolchain-wrapper"
+rustdoc = "./scripts/rustdoc-nightly"
