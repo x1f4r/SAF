@@ -1,3 +1,10 @@
+# WARNING: NOT BAN-SAFE
+
+SAF has not been tested thoroughly and should not be treated as safe for use on
+live accounts. It still needs fixes, validation, and hardening in many areas.
+Use it only with the expectation that bugs, broken workflows, and account-risking
+behavior may still exist.
+
 # SAF
 
 SAF is a Rust automation runtime for Hypixel SkyBlock auction flipping. It can
