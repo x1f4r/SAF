@@ -2,7 +2,7 @@ use super::RunLiveOptions;
 use super::notifier::all_flip_notifier;
 use super::tracked::LiveTrackedFlipProvider;
 use anyhow::Result;
-use saf_core::{AccountId, RuntimeSession, SafConfig};
+use saf_core::{AccountId, Humanizer, RuntimeSession, SafConfig};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -34,6 +34,7 @@ pub(super) async fn add_cofl_clients(
     options: &RunLiveOptions,
     tracked_flips: Arc<LiveTrackedFlipProvider>,
     pending_live_buys: Arc<Mutex<BTreeMap<AccountId, PendingLiveBuy>>>,
+    humanizer: Arc<Humanizer>,
 ) -> Result<(usize, Vec<LiveCoflStream>)> {
     if !options.connect_cofl {
         return Ok((0, Vec::new()));
@@ -52,12 +53,13 @@ pub(super) async fn add_cofl_clients(
         let account_session_id = cofl_session_for_link(&session_id, &link);
         let default_link =
             default_cofl_socket_link(account, &account_session_id).unwrap_or_else(|| link.clone());
-        let client = Arc::new(LiveCoflClient::new_with_safety(
+        let client = Arc::new(LiveCoflClient::new_with_extras(
             account.clone(),
             link,
             account_session_id,
             default_link,
             flip_safety,
+            Some(humanizer.clone()),
         ));
         session.add_cofl_client(account.clone(), client.clone());
         streams.push(LiveCoflStream {
@@ -70,6 +72,7 @@ pub(super) async fn add_cofl_clients(
             bed_click_offset: Duration::from_millis(config.waittime),
             bed_spam: config.bed_spam,
             bed_click_delay: Duration::from_millis(config.click_delay.max(1)),
+            humanizer: humanizer.clone(),
             pending_live_buys: pending_live_buys.clone(),
             notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
             pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),

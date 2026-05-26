@@ -1,3 +1,4 @@
+use crate::humanizer::HumanizerConfig;
 use crate::numbers::parse_number_input;
 use crate::time::parse_timestamp_millis;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -41,6 +42,7 @@ pub struct SafConfig {
     pub do_not_buy: BlockListConfig,
     pub do_not_relist: RelistBlockConfig,
     pub auto_rotate: BTreeMap<String, String>,
+    pub humanizer: HumanizerConfig,
     pub session: String,
 }
 
@@ -79,6 +81,7 @@ impl Default for SafConfig {
             do_not_buy: BlockListConfig::default(),
             do_not_relist: RelistBlockConfig::default(),
             auto_rotate: default_auto_rotate(),
+            humanizer: HumanizerConfig::default(),
             session: String::new(),
         }
     }

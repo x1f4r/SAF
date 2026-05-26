@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use saf_cofl::CoflExecuteInstruction;
 use saf_core::ports::{CoflClient, Notification, Notifier};
 use saf_core::{
-    AccountId, FlipEvent, FlipOutcome, RuntimeDirective, RuntimeOutcome, RuntimeSession,
+    AccountId, FlipEvent, FlipOutcome, Humanizer, RuntimeDirective, RuntimeOutcome, RuntimeSession,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -42,6 +42,7 @@ pub(in crate::live_runtime) struct LiveCoflStream {
     pub(in crate::live_runtime) bed_click_offset: Duration,
     pub(in crate::live_runtime) bed_spam: bool,
     pub(in crate::live_runtime) bed_click_delay: Duration,
+    pub(in crate::live_runtime) humanizer: Arc<Humanizer>,
     pub(in crate::live_runtime) pending_live_buys: Arc<Mutex<BTreeMap<AccountId, PendingLiveBuy>>>,
     pub(in crate::live_runtime) notified_auth_links: Arc<Mutex<BTreeSet<String>>>,
     pub(in crate::live_runtime) pending_auth_links: Arc<Mutex<BTreeMap<String, Instant>>>,
@@ -504,6 +505,10 @@ impl LiveCoflStream {
                 .then(|| timed_bed_click_at(*purchase_at_ms, self.bed_click_offset))
                 .flatten();
             let created_at_ms = super::super::now_ms();
+            let profit_for_bias = flip.profit.max(flip.target - flip.starting_bid);
+            let buy_action_retry_delay =
+                Duration::from_millis(self.humanizer.buy_reaction_ms(profit_for_bias));
+            let timed_bed_click_delay = self.humanizer.click_stream_delay();
             self.pending_live_buys
                 .lock()
                 .map_err(|_| anyhow::anyhow!("pending live-buy lock poisoned"))?
@@ -519,6 +524,8 @@ impl LiveCoflStream {
                         click_at,
                         bed_spam: self.bed_spam,
                         bed_click_delay: self.bed_click_delay,
+                        timed_bed_click_delay,
+                        buy_action_retry_delay,
                         bed_spam_until: None,
                         timed_bed_clicks: 0,
                         timed_bed_cleanup_at: None,

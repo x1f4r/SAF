@@ -132,7 +132,7 @@ use saf_core::ports::{ActiveAuctionProvider, GuiDiagnosticsProvider};
 #[cfg(test)]
 use saf_core::ports::{InventoryItem, InventorySnapshot};
 use saf_core::ports::{MinecraftClient, MinecraftEvent};
-use saf_core::{AccountId, BotRuntime, RuntimeSession, SafConfig};
+use saf_core::{AccountId, BotRuntime, Humanizer, RuntimeSession, SafConfig};
 #[cfg(all(test, feature = "live-discord"))]
 use saf_discord::{DiscordCommandPlan, DiscordControllerAction};
 #[cfg(test)]
@@ -208,6 +208,8 @@ pub struct LiveRuntime {
     config: SafConfig,
     accounts: Vec<AccountId>,
     options: RunLiveOptions,
+    #[allow(dead_code)]
+    humanizer: Arc<Humanizer>,
     inbox: CommandInboxCursor,
     queue: Arc<MarketActionQueueStore>,
     stats: Arc<LiveStatsProvider>,
@@ -313,8 +315,9 @@ async fn add_cofl_clients(
     accounts: &[AccountId],
     config: &SafConfig,
     options: &RunLiveOptions,
+    humanizer: Arc<Humanizer>,
 ) -> Result<usize> {
-    let _ = (session, accounts, config, options);
+    let _ = (session, accounts, config, options, humanizer);
     Ok(0)
 }
 

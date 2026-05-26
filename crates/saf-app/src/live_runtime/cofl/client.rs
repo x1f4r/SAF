@@ -7,7 +7,8 @@ use saf_cofl::{CoflSettingsMutation, CoflSettingsSummary};
 use saf_core::numbers::{add_commas_to_number, parse_number_input};
 use saf_core::ports::{CoflClient, PortError};
 use saf_core::protocol_text::clean_scoreboard_lines;
-use saf_core::{AccountId, FlipEvent};
+use saf_core::{AccountId, FlipEvent, Humanizer};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -119,6 +120,8 @@ pub(in crate::live_runtime) struct LiveCoflClient {
     settings_state: Mutex<LiveCoflSettingsState>,
     flip_safety: Option<CoflFlipSafety>,
     fallback_settings_summary_requested: AtomicBool,
+    humanizer: Option<Arc<Humanizer>>,
+    last_server_switch: Mutex<Option<Instant>>,
 }
 
 impl LiveCoflClient {
@@ -129,9 +132,10 @@ impl LiveCoflClient {
         session_id: String,
         default_link: String,
     ) -> Self {
-        Self::new_with_safety(account, link, session_id, default_link, None)
+        Self::new_with_extras(account, link, session_id, default_link, None, None)
     }
 
+    #[cfg(test)]
     pub(in crate::live_runtime) fn new_with_safety(
         account: AccountId,
         link: String,
@@ -139,10 +143,25 @@ impl LiveCoflClient {
         default_link: String,
         flip_safety: Option<CoflFlipSafety>,
     ) -> Self {
+        Self::new_with_extras(account, link, session_id, default_link, flip_safety, None)
+    }
+
+    pub(in crate::live_runtime) fn new_with_extras(
+        account: AccountId,
+        link: String,
+        session_id: String,
+        default_link: String,
+        flip_safety: Option<CoflFlipSafety>,
+        humanizer: Option<Arc<Humanizer>>,
+    ) -> Self {
         Self {
             account,
             session_id,
-            state: AsyncMutex::new(LiveCoflClientState::new(link, default_link)),
+            state: AsyncMutex::new(LiveCoflClientState::new_with_humanizer(
+                link,
+                default_link,
+                humanizer.clone(),
+            )),
             privacy_filter: Mutex::new(CoflPrivacyFilter::default()),
             initial_scoreboard_upload_at: Mutex::new(None),
             startup_account_info_requested_at: Mutex::new(None),
@@ -152,6 +171,8 @@ impl LiveCoflClient {
             settings_state: Mutex::new(LiveCoflSettingsState::default()),
             flip_safety,
             fallback_settings_summary_requested: AtomicBool::new(false),
+            humanizer,
+            last_server_switch: Mutex::new(None),
         }
     }
 
@@ -299,7 +320,8 @@ impl LiveCoflClient {
 
     pub(in crate::live_runtime) async fn switch_link(&self, link: String) {
         let mut state = self.state.lock().await;
-        if state.is_region_backed_off(&link, Instant::now()) {
+        let now = Instant::now();
+        if state.is_region_backed_off(&link, now) {
             tracing::debug!(
                 account = %self.account,
                 link = %saf_cofl::redact_cofl_socket_link(&link),
@@ -308,6 +330,23 @@ impl LiveCoflClient {
             return;
         }
         if state.link != link {
+            if let Some(humanizer) = self.humanizer.as_ref() {
+                if let Err(wait) = humanizer.try_register_server_switch(now) {
+                    tracing::debug!(
+                        account = %self.account,
+                        link = %saf_cofl::redact_cofl_socket_link(&link),
+                        wait_ms = wait.as_millis() as u64,
+                        "deferring Cofl socket switch while humanizer cooldown is active"
+                    );
+                    if let Ok(mut last) = self.last_server_switch.lock() {
+                        *last = Some(now);
+                    }
+                    return;
+                }
+                if let Ok(mut last) = self.last_server_switch.lock() {
+                    *last = Some(now);
+                }
+            }
             state.link = link;
         }
         state.defer_reconnect(Duration::from_secs(5));
@@ -657,12 +696,17 @@ impl CoflClient for LiveCoflClient {
             )));
         }
 
-        let mut state = self.state.lock().await;
-        drop(state);
+        if let Some(humanizer) = self.humanizer.as_ref() {
+            let wait = humanizer.acquire_throttle_token();
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
+        }
+
         self.ensure_connected(true)
             .await
             .map_err(|error| PortError::Failed(error.to_string()))?;
-        state = self.state.lock().await;
+        let mut state = self.state.lock().await;
         let Some(client) = state.client.as_ref() else {
             return Err(PortError::Unavailable(format!(
                 "cofl websocket is not connected for {account}"

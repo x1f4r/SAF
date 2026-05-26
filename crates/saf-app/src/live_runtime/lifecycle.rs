@@ -2,14 +2,14 @@ use super::{
     Arc, AtomicBool, BTreeMap, BTreeSet, BankCooldownStore, BotRuntime, CommandInboxCursor,
     Context, DEFAULT_BAD_MOD_KICK_BACKOFF_MS, DEFAULT_IDLE_AUCTION_RECONCILE_MS,
     DEFAULT_LOCRAW_DELAY_MS, DEFAULT_SOLD_AUCTION_POLL_MS, FileBlacklistStore, FileLogReader,
-    FileQueueStore, HypixelCookiePriceProvider, LiveAccountScheduler, LiveAccountSupervisor,
-    LiveActiveAuctionProvider, LiveAuctionReconcilePoller, LiveIslandState, LiveRuntime,
-    LiveSoldTracker, LiveStatsProvider, LiveTrackedFlipProvider, MarketActionQueueStore, Mutex,
-    Ordering, Result, RunLiveOptions, RuntimeSession, SafConfig, add_cofl_clients,
-    add_minecraft_clients, auto_rotate_schedules, configured_startup_runtime_accounts,
-    default_inventory_price_lookup, default_notifier, env_duration_ms, env_optional_duration_ms,
-    native_minecraft_enabled, runtime_accounts, sleep, start_auto_rotate_tasks,
-    startup_runtime_accounts_with_rotation,
+    FileQueueStore, Humanizer, HypixelCookiePriceProvider, LiveAccountScheduler,
+    LiveAccountSupervisor, LiveActiveAuctionProvider, LiveAuctionReconcilePoller, LiveIslandState,
+    LiveRuntime, LiveSoldTracker, LiveStatsProvider, LiveTrackedFlipProvider,
+    MarketActionQueueStore, Mutex, Ordering, Result, RunLiveOptions, RuntimeSession, SafConfig,
+    add_cofl_clients, add_minecraft_clients, auto_rotate_schedules,
+    configured_startup_runtime_accounts, default_inventory_price_lookup, default_notifier,
+    env_duration_ms, env_optional_duration_ms, native_minecraft_enabled, runtime_accounts, sleep,
+    start_auto_rotate_tasks, startup_runtime_accounts_with_rotation,
 };
 
 #[cfg(feature = "live-discord")]
@@ -42,6 +42,7 @@ impl LiveRuntime {
             .map(ToString::to_string)
             .collect::<Vec<_>>();
         let mut session = RuntimeSession::new(BotRuntime::from_config(&config, running));
+        let humanizer = Arc::new(Humanizer::new(config.humanizer.clone()));
 
         let file_store = FileQueueStore::new(&options.state_base_dir);
         let queue = Arc::new(MarketActionQueueStore::new(
@@ -136,10 +137,18 @@ impl LiveRuntime {
             &options,
             tracked_flips.clone(),
             pending_live_buys.clone(),
+            humanizer.clone(),
         )
         .await?;
         #[cfg(not(feature = "live-cofl"))]
-        let cofl_connections = add_cofl_clients(&mut session, &accounts, &config, &options).await?;
+        let cofl_connections = add_cofl_clients(
+            &mut session,
+            &accounts,
+            &config,
+            &options,
+            humanizer.clone(),
+        )
+        .await?;
 
         #[cfg(feature = "live-cofl")]
         session.set_account_supervisor(Arc::new(LiveAccountSupervisor::new(
@@ -169,7 +178,12 @@ impl LiveRuntime {
         let auto_rotate_tasks = if options.once {
             Vec::new()
         } else {
-            start_auto_rotate_tasks(auto_rotate_schedules, session.clone(), shutdown.clone())
+            start_auto_rotate_tasks(
+                auto_rotate_schedules,
+                session.clone(),
+                shutdown.clone(),
+                humanizer.clone(),
+            )
         };
         #[cfg(feature = "live-discord")]
         let head_refresher = Arc::new(PlayerHeadRefresher::live(
@@ -204,6 +218,7 @@ impl LiveRuntime {
             accounts,
             inbox,
             options,
+            humanizer,
             queue,
             stats,
             tracked_flips,

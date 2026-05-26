@@ -224,6 +224,10 @@ async fn cofl_inventory_request_serializes_live_inventory_snapshot() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -311,6 +315,10 @@ async fn cofl_max_inventory_pause_requests_live_inventory_refresh() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -364,6 +372,10 @@ async fn cofl_inventory_request_waits_until_market_ready() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -421,6 +433,10 @@ async fn cofl_privacy_settings_enable_matching_chat_batch_uploads() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -491,6 +507,10 @@ async fn cofl_auth_links_are_forwarded_to_operator_once() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -564,6 +584,10 @@ async fn cofl_auth_link_is_suppressed_when_settings_json_arrives() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -748,6 +772,10 @@ async fn cofl_envelope_errors_are_account_scoped() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -802,6 +830,10 @@ async fn cofl_flip_dry_run_tracks_without_opening_auction() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -858,6 +890,10 @@ async fn cofl_flip_live_settings_gate_tracks_without_opening_auction() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: pending_live_buys.clone(),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -915,6 +951,10 @@ async fn cofl_settings_payloads_enable_live_flips_and_load_failure_disables_them
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: pending_live_buys.clone(),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -1063,6 +1103,10 @@ async fn cofl_flip_live_market_gate_tracks_without_opening_auction() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: pending_live_buys.clone(),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -1849,13 +1893,12 @@ async fn live_cofl_buy_retries_confirm_purchase_until_window_closes() {
             item_uuid: None,
         }],
     }));
-    runtime
-        .pending_live_buys
-        .lock()
-        .unwrap()
-        .get_mut(&account)
-        .unwrap()
-        .last_click = Some(Instant::now() - Duration::from_millis(60));
+    {
+        let mut pending = runtime.pending_live_buys.lock().unwrap();
+        let pending = pending.get_mut(&account).unwrap();
+        pending.buy_action_retry_delay = Duration::from_millis(55);
+        pending.last_click = Some(Instant::now() - Duration::from_millis(60));
+    }
     runtime.poll_minecraft_once().await.unwrap();
     runtime.process_pending_live_buys_once().await.unwrap();
 
@@ -1940,13 +1983,12 @@ async fn live_cofl_timed_bed_waits_for_purchase_time_before_clicking() {
         )]
     );
 
-    runtime
-        .pending_live_buys
-        .lock()
-        .unwrap()
-        .get_mut(&account)
-        .unwrap()
-        .click_at = Some(Instant::now() - Duration::from_millis(1));
+    {
+        let mut pending = runtime.pending_live_buys.lock().unwrap();
+        let pending = pending.get_mut(&account).unwrap();
+        pending.timed_bed_click_delay = Duration::from_millis(3);
+        pending.click_at = Some(Instant::now() - Duration::from_millis(1));
+    }
     runtime.process_pending_live_buys_once().await.unwrap();
 
     assert_eq!(
@@ -1958,13 +2000,12 @@ async fn live_cofl_timed_bed_waits_for_purchase_time_before_clicking() {
         1
     );
     for expected_clicks in 2..=5 {
-        runtime
-            .pending_live_buys
-            .lock()
-            .unwrap()
-            .get_mut(&account)
-            .unwrap()
-            .last_click = Some(Instant::now() - Duration::from_millis(4));
+        {
+            let mut pending = runtime.pending_live_buys.lock().unwrap();
+            let pending = pending.get_mut(&account).unwrap();
+            pending.timed_bed_click_delay = Duration::from_millis(3);
+            pending.last_click = Some(Instant::now() - Duration::from_millis(4));
+        }
         runtime.process_pending_live_buys_once().await.unwrap();
         assert_eq!(
             runtime
@@ -2176,6 +2217,10 @@ async fn cofl_flip_sends_all_flips_notification_best_effort() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -2244,6 +2289,10 @@ async fn cofl_execute_chat_is_blocked_without_explicit_opt_in() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };
@@ -2300,6 +2349,10 @@ async fn cofl_execute_chat_opt_in_forwards_to_minecraft_chat() {
         bed_spam: false,
         bed_click_delay: Duration::from_millis(125),
         pending_live_buys: Arc::new(Mutex::new(BTreeMap::new())),
+        humanizer: Arc::new(saf_core::Humanizer::seeded(
+            saf_core::HumanizerConfig::default(),
+            0,
+        )),
         notified_auth_links: Arc::new(Mutex::new(BTreeSet::new())),
         pending_auth_links: Arc::new(Mutex::new(BTreeMap::new())),
     };

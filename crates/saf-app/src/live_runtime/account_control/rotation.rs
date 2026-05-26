@@ -1,6 +1,6 @@
 use super::super::{notify_operator_best_effort, now_ms};
 use saf_core::ports::{Notification, ScheduledAccountAction};
-use saf_core::{AccountId, RuntimeDirective, RuntimeSession, SafConfig};
+use saf_core::{AccountId, Humanizer, RuntimeDirective, RuntimeSession, SafConfig};
 use std::collections::BTreeSet;
 use std::sync::{
     Arc,
@@ -159,24 +159,33 @@ pub(in crate::live_runtime) fn start_auto_rotate_tasks(
     schedules: Vec<AutoRotateSchedule>,
     session: Arc<RuntimeSession>,
     shutdown: Arc<AtomicBool>,
+    humanizer: Arc<Humanizer>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     schedules
         .into_iter()
         .map(|schedule| {
             let session = session.clone();
             let shutdown = shutdown.clone();
+            let humanizer = humanizer.clone();
             tokio::spawn(async move {
                 if schedule.rest_first() {
-                    notify_auto_rotate_waiting(&session, &schedule).await;
+                    notify_auto_rotate_waiting(&session, &schedule, humanizer.as_ref()).await;
                 }
                 loop {
                     for (delay, action, next_delay) in schedule.action_steps() {
-                        sleep(delay).await;
+                        let jittered_delay = humanizer.jitter_session_leg(delay);
+                        let jittered_next_delay = humanizer.jitter_session_leg(next_delay);
+                        sleep(jittered_delay).await;
                         if shutdown.load(Ordering::SeqCst) {
                             return;
                         }
-                        execute_auto_rotate_action(&session, &schedule.account, action, next_delay)
-                            .await;
+                        execute_auto_rotate_action(
+                            &session,
+                            &schedule.account,
+                            action,
+                            jittered_next_delay,
+                        )
+                        .await;
                     }
                 }
             })
@@ -209,8 +218,12 @@ async fn execute_auto_rotate_action(
     }
 }
 
-async fn notify_auto_rotate_waiting(session: &RuntimeSession, schedule: &AutoRotateSchedule) {
-    let first_start_delay = schedule.action_steps()[0].0;
+async fn notify_auto_rotate_waiting(
+    session: &RuntimeSession,
+    schedule: &AutoRotateSchedule,
+    humanizer: &Humanizer,
+) {
+    let first_start_delay = humanizer.jitter_session_leg(schedule.action_steps()[0].0);
     notify_operator_best_effort(
         session,
         Notification {

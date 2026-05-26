@@ -91,6 +91,65 @@
     ign: "12r:12f",
   },
 
+  // Anti-detection humanizer. Every section may be omitted and the safe
+  // defaults shown below will apply. Set `enabled: false` only for offline
+  // replay/tests — disabling collapses every delay to the configured minimum.
+  humanizer: {
+    enabled: true,
+    // Critical buy/snipe path. The sampled latency is always clamped into
+    // `[floorMs, ceilingMs]` and biased toward `floorMs` proportional to the
+    // flip's expected profit (turboProfitCoins → fastest, marginalProfitCoins
+    // → slowest).
+    buy: {
+      floorMs: 100,
+      ceilingMs: 200,
+      turboProfitCoins: 30000000,
+      marginalProfitCoins: 1000000,
+      jitterStdMs: 12.0,
+    },
+    // Default truncated-normal delay for non-critical actions (menu nav,
+    // command sends, lookups).
+    defaultAction: {
+      meanMs: 280.0,
+      stdMs: 110.0,
+      minMs: 120,
+      maxMs: 900,
+    },
+    // Inter-click delay for bursts (timed bed clicks). Floor stays >= human
+    // mouse-spam, ceiling caps the random tail.
+    clickStream: {
+      meanMs: 130.0,
+      stdMs: 35.0,
+      minMs: 80,
+      maxMs: 260,
+    },
+    // Token-bucket rate limiter for outbound commands.
+    throttle: {
+      steadyPerSec: 2.0,
+      burst: 4,
+    },
+    // Decorrelated jitter backoff for socket reconnects.
+    backoff: {
+      baseMs: 5000,
+      capMs: 120000,
+      factor: 3.0,
+    },
+    // SkyCofl region switching limits. Prevents cadence-based fingerprints.
+    serverSwitch: {
+      minCooldownMs: 60000,
+      meanJitterMs: 45000.0,
+      stdJitterMs: 20000.0,
+      maxInWindow: 4,
+      windowMs: 1800000,
+    },
+    // Session-leg jitter applied on top of `autoRotate` so the "12r:12f"
+    // cadence does not sit on exact hour boundaries.
+    session: {
+      legJitterRatio: 0.15,
+      minLegMs: 300000,
+    },
+  },
+
   // SkyCofl session state. Leave blank in the template; rust-cofl-auth-link or
   // the live runtime can fill config.json5 when authorization is needed.
   session: "",

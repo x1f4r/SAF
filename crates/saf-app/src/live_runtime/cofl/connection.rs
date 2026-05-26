@@ -1,4 +1,6 @@
+use saf_core::Humanizer;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(in crate::live_runtime) struct LiveCoflClientState {
@@ -12,12 +14,20 @@ pub(in crate::live_runtime) struct LiveCoflClientState {
 }
 
 impl LiveCoflClientState {
-    pub(super) fn new(link: String, default_link: String) -> Self {
+    pub(super) fn new_with_humanizer(
+        link: String,
+        default_link: String,
+        humanizer: Option<Arc<Humanizer>>,
+    ) -> Self {
+        let backoff = match humanizer {
+            Some(humanizer) => CoflReconnectBackoff::with_humanizer(humanizer),
+            None => CoflReconnectBackoff::new(Duration::from_secs(5), Duration::from_secs(60)),
+        };
         Self {
             link,
             default_link,
             client: None,
-            backoff: CoflReconnectBackoff::new(Duration::from_secs(5), Duration::from_secs(60)),
+            backoff,
             connected_at: None,
             last_message_at: None,
             silent_watchdog: CoflSilentOpenWatchdog::default(),
@@ -149,12 +159,26 @@ pub(in crate::live_runtime) fn cofl_socket_host(link: &str) -> Option<String> {
     Some(host)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(in crate::live_runtime) struct CoflReconnectBackoff {
     min_delay: Duration,
     max_delay: Duration,
     next_delay: Duration,
     pub(in crate::live_runtime) next_attempt: Option<Instant>,
+    humanizer: Option<Arc<Humanizer>>,
+}
+
+impl std::fmt::Debug for CoflReconnectBackoff {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CoflReconnectBackoff")
+            .field("min_delay", &self.min_delay)
+            .field("max_delay", &self.max_delay)
+            .field("next_delay", &self.next_delay)
+            .field("next_attempt", &self.next_attempt)
+            .field("humanizer", &self.humanizer.is_some())
+            .finish()
+    }
 }
 
 impl CoflReconnectBackoff {
@@ -164,6 +188,20 @@ impl CoflReconnectBackoff {
             max_delay,
             next_delay: min_delay,
             next_attempt: None,
+            humanizer: None,
+        }
+    }
+
+    pub(in crate::live_runtime) fn with_humanizer(humanizer: Arc<Humanizer>) -> Self {
+        let backoff = &humanizer.config().backoff;
+        let min_delay = Duration::from_millis(backoff.base_ms.max(1));
+        let max_delay = Duration::from_millis(backoff.cap_ms.max(backoff.base_ms));
+        Self {
+            min_delay,
+            max_delay,
+            next_delay: min_delay,
+            next_attempt: None,
+            humanizer: Some(humanizer),
         }
     }
 
@@ -177,8 +215,13 @@ impl CoflReconnectBackoff {
     }
 
     pub(in crate::live_runtime) fn record_failure(&mut self, now: Instant) {
-        self.next_attempt = Some(now + self.next_delay);
-        self.next_delay = self.next_delay.saturating_mul(2).min(self.max_delay);
+        let scheduled = self.next_delay;
+        self.next_attempt = Some(now + scheduled);
+        let promoted = match &self.humanizer {
+            Some(humanizer) => humanizer.next_backoff(scheduled),
+            None => scheduled.saturating_mul(2).min(self.max_delay),
+        };
+        self.next_delay = promoted.min(self.max_delay);
     }
 
     pub(super) fn record_deferred_attempt(&mut self, now: Instant, delay: Duration) {

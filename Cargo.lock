@@ -3170,6 +3170,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "json5",
+ "rand 0.8.6",
  "regex",
  "serde",
  "serde_json",

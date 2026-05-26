@@ -10,9 +10,7 @@ use std::time::{Duration, Instant};
 
 const BED_SPAM_WINDOW_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TIMED_BED_CLICKS: u8 = 5;
-const TIMED_BED_CLICK_DELAY: Duration = Duration::from_millis(3);
 const TIMED_BED_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
-const BUY_ACTION_RETRY_DELAY: Duration = Duration::from_millis(55);
 const BUY_ACTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const LIVE_BUY_PRICE_TOLERANCE_RATIO: f64 = 1.05;
 const LIVE_BUY_PRICE_TOLERANCE_COINS: f64 = 100_000.0;
@@ -29,6 +27,8 @@ pub(in crate::live_runtime) struct PendingLiveBuy {
     pub(in crate::live_runtime) click_at: Option<Instant>,
     pub(in crate::live_runtime) bed_spam: bool,
     pub(in crate::live_runtime) bed_click_delay: Duration,
+    pub(in crate::live_runtime) timed_bed_click_delay: Duration,
+    pub(in crate::live_runtime) buy_action_retry_delay: Duration,
     pub(in crate::live_runtime) bed_spam_until: Option<Instant>,
     pub(in crate::live_runtime) timed_bed_clicks: u8,
     pub(in crate::live_runtime) timed_bed_cleanup_at: Option<Instant>,
@@ -330,7 +330,7 @@ impl LiveRuntime {
                         continue;
                     }
                     if pending.last_click.is_some_and(|last_click| {
-                        now.duration_since(last_click) < TIMED_BED_CLICK_DELAY
+                        now.duration_since(last_click) < pending.timed_bed_click_delay
                     }) {
                         continue;
                     }
@@ -356,7 +356,7 @@ impl LiveRuntime {
                         continue;
                     }
                     if pending.last_click.is_some_and(|last_click| {
-                        now.duration_since(last_click) < BUY_ACTION_RETRY_DELAY
+                        now.duration_since(last_click) < pending.buy_action_retry_delay
                     }) {
                         continue;
                     }
