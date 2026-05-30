@@ -57,6 +57,12 @@ pub(crate) async fn print_cofl_auth_link(
     let mut auth_required = false;
     let mut saw_account_tier = false;
     let mut requested_settings = false;
+    // The SkyCofl authorization only binds to the session while the socket is
+    // connected, so we print the login link as soon as it arrives but then keep
+    // looping (holding the connection open) until Coflnet confirms a tier or the
+    // timeout elapses — rather than disconnecting immediately and stranding the
+    // operator's later login with no live connection to bind to.
+    let mut link_printed = false;
     let started = tokio::time::Instant::now();
     while started.elapsed() < timeout {
         let remaining = timeout.saturating_sub(started.elapsed());
@@ -67,21 +73,38 @@ pub(crate) async fn print_cofl_auth_link(
             Err(_) => break,
         };
 
+        // Authorization confirmed: Coflnet started reporting a tier for this live
+        // session. It is persisted by session id, so future runs are authorized.
+        if envelope
+            .telemetry_update()
+            .is_some_and(|update| update.cofl_tier.is_some())
         {
-            let links = envelope.auth_links();
-            if !links.is_empty() {
-                print_report(CoflAuthLinkReport {
-                    kind: "skyCoflAuthLink",
-                    account: account.to_string(),
-                    link: links.first().cloned(),
-                    links,
-                    auth_required: true,
-                    session_persisted: generated_session,
-                    socket_link: redacted_socket_link,
-                    message: "Open the link, log in with Google, then keep this session value in config.json5.".to_string(),
-                })?;
-                return Ok(());
-            }
+            print_report(CoflAuthLinkReport {
+                kind: "skyCoflAuthReady",
+                account: account.to_string(),
+                link: None,
+                links: Vec::new(),
+                auth_required: false,
+                session_persisted: generated_session,
+                socket_link: redacted_socket_link.clone(),
+                message: "SkyCofl session is now authorized; the session saved in config.json5 is ready to use.".to_string(),
+            })?;
+            return Ok(());
+        }
+
+        let links = envelope.auth_links();
+        if !links.is_empty() && !link_printed {
+            print_report(CoflAuthLinkReport {
+                kind: "skyCoflAuthLink",
+                account: account.to_string(),
+                link: links.first().cloned(),
+                links,
+                auth_required: true,
+                session_persisted: generated_session,
+                socket_link: redacted_socket_link.clone(),
+                message: "Open the link and log in with Google NOW, while this command stays connected. It confirms automatically once authorized.".to_string(),
+            })?;
+            link_printed = true;
         }
 
         auth_required |= envelope.logged_out_settings_recovery_command().is_some();
@@ -107,6 +130,20 @@ pub(crate) async fn print_cofl_auth_link(
             socket_link: redacted_socket_link,
             message: "SkyCofl did not send a login link; this session already looks authorized."
                 .to_string(),
+        })?;
+        return Ok(());
+    }
+
+    if link_printed {
+        print_report(CoflAuthLinkReport {
+            kind: "skyCoflAuthLinkPending",
+            account: account.to_string(),
+            link: None,
+            links: Vec::new(),
+            auth_required: true,
+            session_persisted: generated_session,
+            socket_link: redacted_socket_link,
+            message: "Login link was shown and the connection stayed open, but no authorization arrived before the timeout. Finish the Google login, then re-run to confirm.".to_string(),
         })?;
         return Ok(());
     }
