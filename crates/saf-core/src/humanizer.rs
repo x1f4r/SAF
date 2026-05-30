@@ -51,6 +51,11 @@ pub struct HumanizerConfig {
     /// Session-length jitter applied to scheduled rest/flip rotations so the
     /// "12r:12f" cadence does not sit at exact hour boundaries.
     pub session: SessionConfig,
+
+    /// Idle "anti-AFK" look/jump behaviour. Drives the avatar to occasionally
+    /// glance around (and rarely hop in place) while running and not busy with
+    /// a market action, so a frozen camera never gives the bot away.
+    pub idle: IdleBehaviorConfig,
 }
 
 impl Default for HumanizerConfig {
@@ -64,6 +69,7 @@ impl Default for HumanizerConfig {
             backoff: BackoffConfig::default(),
             server_switch: ServerSwitchConfig::default(),
             session: SessionConfig::default(),
+            idle: IdleBehaviorConfig::default(),
         }
     }
 }
@@ -237,6 +243,49 @@ impl Default for SessionConfig {
             min_leg_ms: 5 * 60 * 1_000,
         }
     }
+}
+
+/// Idle anti-AFK behaviour. Defaults are deliberately gentle: a glance every
+/// ~25–75 s, rotation deltas of a handful of degrees, and a rare in-place jump.
+/// Nothing here ever produces positional translation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct IdleBehaviorConfig {
+    /// Master switch for the idle look/jump task. On by default.
+    pub enabled: bool,
+    /// Minimum gap between two idle nudges in milliseconds.
+    pub min_interval_ms: u64,
+    /// Maximum gap between two idle nudges in milliseconds.
+    pub max_interval_ms: u64,
+    /// Maximum absolute yaw change applied per nudge, in degrees.
+    pub max_yaw_delta_deg: f32,
+    /// Maximum absolute pitch change applied per nudge, in degrees.
+    pub max_pitch_delta_deg: f32,
+    /// Probability in `[0, 1]` that a given idle nudge is a jump instead of a
+    /// look. Kept small so the avatar mostly just glances around.
+    pub jump_probability: f64,
+}
+
+impl Default for IdleBehaviorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_interval_ms: 25_000,
+            max_interval_ms: 75_000,
+            max_yaw_delta_deg: 18.0,
+            max_pitch_delta_deg: 8.0,
+            jump_probability: 0.08,
+        }
+    }
+}
+
+/// A single idle anti-AFK gesture sampled by [`Humanizer::sample_idle_action`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IdleAction {
+    /// Rotate the view by a small relative yaw/pitch delta (degrees).
+    Look { yaw_delta: f32, pitch_delta: f32 },
+    /// Hop in place.
+    Jump,
 }
 
 // =============================================================================
@@ -414,6 +463,44 @@ impl Humanizer {
         Duration::from_millis(sample.max(0.0) as u64)
     }
 
+    /// Sample the delay to wait before the next idle anti-AFK gesture. Uniform
+    /// in `[min_interval_ms, max_interval_ms]`. When idle behaviour or the
+    /// whole humanizer is disabled, returns the configured maximum so the
+    /// caller still ticks slowly rather than busy-looping.
+    pub fn next_idle_delay(&self) -> Duration {
+        let idle = &self.config.idle;
+        let min = idle.min_interval_ms.max(1);
+        let max = idle.max_interval_ms.max(min);
+        if !self.config.enabled || !idle.enabled {
+            return Duration::from_millis(max);
+        }
+        let sample = self.sample_uniform(min as f64, max as f64);
+        Duration::from_millis(sample.round().clamp(min as f64, max as f64) as u64)
+    }
+
+    /// Sample one idle anti-AFK gesture: usually a small relative look, rarely
+    /// an in-place jump. Look deltas are symmetric around zero so the camera
+    /// wanders gently rather than always drifting one way. Returns `None` when
+    /// idle behaviour is disabled.
+    pub fn sample_idle_action(&self) -> Option<IdleAction> {
+        let idle = &self.config.idle;
+        if !self.config.enabled || !idle.enabled {
+            return None;
+        }
+        let jump_roll = self.sample_uniform(0.0, 1.0);
+        if jump_roll < idle.jump_probability.clamp(0.0, 1.0) {
+            return Some(IdleAction::Jump);
+        }
+        let yaw_span = idle.max_yaw_delta_deg.abs().max(0.0) as f64;
+        let pitch_span = idle.max_pitch_delta_deg.abs().max(0.0) as f64;
+        let yaw_delta = self.sample_uniform(-yaw_span, yaw_span) as f32;
+        let pitch_delta = self.sample_uniform(-pitch_span, pitch_span) as f32;
+        Some(IdleAction::Look {
+            yaw_delta,
+            pitch_delta,
+        })
+    }
+
     // ---- internal helpers ----
 
     fn sample_normal(&self, mean: f64, std: f64) -> f64 {
@@ -442,6 +529,19 @@ impl Humanizer {
         }
         rng.gen_range(lower..=upper)
     }
+}
+
+/// Derive a stable, distinct RNG seed for a named account from a base seed.
+///
+/// Each account gets its OWN humanizer (own token bucket + server-switch
+/// tracker) so one account can never drain another's budget. Seeding by
+/// `base_seed XOR hash(account)` keeps the per-account streams independent
+/// while remaining deterministic for a given base seed (used by tests/replay).
+pub fn account_humanizer_seed(base_seed: u64, account: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    account.hash(&mut hasher);
+    base_seed ^ hasher.finish()
 }
 
 fn profit_bias(profit_coins: f64, marginal: f64, turbo: f64) -> f64 {
@@ -676,6 +776,72 @@ mod tests {
             assert!(actual >= Duration::from_millis(60_000));
             assert!(actual <= Duration::from_millis(180_000));
         }
+    }
+
+    #[test]
+    fn idle_actions_respect_configured_bounds() {
+        let h = sampler(123);
+        let cfg = &h.config().idle;
+        for _ in 0..5_000 {
+            match h.sample_idle_action() {
+                Some(IdleAction::Look {
+                    yaw_delta,
+                    pitch_delta,
+                }) => {
+                    assert!(yaw_delta.abs() <= cfg.max_yaw_delta_deg + 1e-3);
+                    assert!(pitch_delta.abs() <= cfg.max_pitch_delta_deg + 1e-3);
+                }
+                Some(IdleAction::Jump) => {}
+                None => panic!("idle enabled by default should always yield an action"),
+            }
+            let delay = h.next_idle_delay().as_millis() as u64;
+            assert!((cfg.min_interval_ms..=cfg.max_interval_ms).contains(&delay));
+        }
+    }
+
+    #[test]
+    fn idle_action_can_produce_both_looks_and_jumps() {
+        let h = sampler(321);
+        let mut looks = 0;
+        let mut jumps = 0;
+        for _ in 0..10_000 {
+            match h.sample_idle_action() {
+                Some(IdleAction::Look { .. }) => looks += 1,
+                Some(IdleAction::Jump) => jumps += 1,
+                None => unreachable!(),
+            }
+        }
+        assert!(
+            jumps > 0,
+            "expected at least one jump with default probability"
+        );
+        assert!(looks > jumps, "looks should dominate jumps");
+    }
+
+    #[test]
+    fn disabled_idle_yields_no_action() {
+        let cfg = HumanizerConfig {
+            idle: IdleBehaviorConfig {
+                enabled: false,
+                ..IdleBehaviorConfig::default()
+            },
+            ..HumanizerConfig::default()
+        };
+        let h = Humanizer::seeded(cfg, 9);
+        assert_eq!(h.sample_idle_action(), None);
+        // Still returns a bounded (max) delay so callers tick rather than spin.
+        assert_eq!(
+            h.next_idle_delay(),
+            Duration::from_millis(IdleBehaviorConfig::default().max_interval_ms)
+        );
+    }
+
+    #[test]
+    fn per_account_seeds_are_distinct_and_deterministic() {
+        let a = account_humanizer_seed(42, "Main");
+        let b = account_humanizer_seed(42, "Alt");
+        assert_ne!(a, b, "different accounts must get different seeds");
+        assert_eq!(a, account_humanizer_seed(42, "Main"), "seed is stable");
     }
 
     #[test]

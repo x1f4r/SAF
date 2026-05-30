@@ -20,6 +20,10 @@ impl LiveRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("active window timestamp lock poisoned"))?
             .remove(account);
+        self.market_settle_jitter
+            .lock()
+            .map_err(|_| anyhow::anyhow!("market settle jitter lock poisoned"))?
+            .remove(account);
         Ok(())
     }
 }

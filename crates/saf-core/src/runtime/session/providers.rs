@@ -64,20 +64,16 @@ impl RuntimeSession {
 
     pub(super) fn tracked_flip_provider(
         &self,
-        account: &AccountId,
+        _account: &AccountId,
     ) -> Option<&Arc<dyn TrackedFlipProvider>> {
-        self.tracked_flip_providers
-            .get(account)
-            .or(self.fallback_tracked_flip_provider.as_ref())
+        self.fallback_tracked_flip_provider.as_ref()
     }
 
     pub(super) fn connection_provider(
         &self,
-        account: &AccountId,
+        _account: &AccountId,
     ) -> Option<&Arc<dyn AccountConnectionProvider>> {
-        self.connection_providers
-            .get(account)
-            .or(self.fallback_connection_provider.as_ref())
+        self.fallback_connection_provider.as_ref()
     }
 
     pub(super) fn inventory_provider(
@@ -100,11 +96,9 @@ impl RuntimeSession {
 
     pub(super) fn gui_diagnostics_provider(
         &self,
-        account: &AccountId,
+        _account: &AccountId,
     ) -> Option<&Arc<dyn GuiDiagnosticsProvider>> {
-        self.gui_diagnostics_providers
-            .get(account)
-            .or(self.fallback_gui_diagnostics_provider.as_ref())
+        self.fallback_gui_diagnostics_provider.as_ref()
     }
 
     pub(super) async fn request_ping_samples(&self, account: &AccountId) {

@@ -675,6 +675,7 @@ async fn supervisor_stop_disconnects_and_start_reconnects_minecraft() {
         vec![account.clone()],
         vec![account.clone()],
         BTreeMap::from([(account.clone(), managed.clone())]),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
     );
 
     assert!(managed.is_connected().await);
@@ -682,6 +683,55 @@ async fn supervisor_stop_disconnects_and_start_reconnects_minecraft() {
     assert!(!managed.is_connected().await);
     supervisor.start(&account).await.unwrap();
     assert!(managed.is_connected().await);
+}
+
+#[cfg(not(feature = "live-cofl"))]
+#[tokio::test]
+async fn stop_all_latches_halt_and_start_clears_it() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let main = AccountId::new("Main").unwrap();
+    let alt = AccountId::new("Alt").unwrap();
+    let managed_main = Arc::new(
+        ManagedMinecraftClient::connect(main.clone(), MarketActionMode::DryRun, None)
+            .await
+            .unwrap(),
+    );
+    let managed_alt = Arc::new(
+        ManagedMinecraftClient::connect(alt.clone(), MarketActionMode::DryRun, None)
+            .await
+            .unwrap(),
+    );
+    let halted = Arc::new(AtomicBool::new(false));
+    let supervisor = LiveAccountSupervisor::new(
+        vec![main.clone(), alt.clone()],
+        vec![main.clone(), alt.clone()],
+        BTreeMap::from([
+            (main.clone(), managed_main.clone()),
+            (alt.clone(), managed_alt.clone()),
+        ]),
+        halted.clone(),
+    );
+
+    // A single-account stop must NOT latch the global halt (others keep flipping).
+    supervisor.stop(Some(main.clone())).await.unwrap();
+    assert!(
+        !halted.load(Ordering::SeqCst),
+        "a single-account stop must not halt the whole runtime"
+    );
+
+    // Stop All is the panic stop: it latches the halt so nothing can restart.
+    supervisor.stop(None).await.unwrap();
+    assert!(
+        halted.load(Ordering::SeqCst),
+        "Stop All must latch the runtime halt"
+    );
+
+    // An explicit operator start re-arms the runtime.
+    supervisor.start(&alt).await.unwrap();
+    assert!(
+        !halted.load(Ordering::SeqCst),
+        "an explicit start must clear the halt"
+    );
 }
 
 #[tokio::test]
@@ -702,6 +752,7 @@ async fn managed_minecraft_reconnects_after_disconnect_event() {
         reconnect_delay: Duration::ZERO,
         reconnect_failures: Arc::new(AsyncMutex::new(0)),
         price_lookup: None,
+        stopped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     assert!(matches!(
@@ -729,7 +780,19 @@ async fn managed_minecraft_reconnect_backoff_grows_after_fast_disconnects() {
 #[tokio::test]
 async fn managed_minecraft_background_connect_respects_reconnect_backoff() {
     let account = AccountId::new("Main").unwrap();
-    let managed = ManagedMinecraftClient::stopped(account, MarketActionMode::DryRun, None);
+    // Model a *running* account that was just kicked (transient disconnect): it
+    // is not intentionally stopped, so its reconnect is governed by the backoff,
+    // not the inert-stop guard.
+    let managed = ManagedMinecraftClient {
+        account,
+        mode: MarketActionMode::DryRun,
+        inner: Arc::new(AsyncMutex::new(None)),
+        reconnect_at: Arc::new(AsyncMutex::new(None)),
+        reconnect_delay: Duration::from_secs(5),
+        reconnect_failures: Arc::new(AsyncMutex::new(0)),
+        price_lookup: None,
+        stopped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
 
     managed.mark_runtime_disconnected().await;
 

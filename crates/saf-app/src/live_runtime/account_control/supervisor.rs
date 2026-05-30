@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use saf_core::AccountId;
 use saf_core::ports::{AccountSupervisor, PortError};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -14,6 +15,9 @@ pub(in crate::live_runtime) struct LiveAccountSupervisor {
     minecraft: BTreeMap<AccountId, Arc<ManagedMinecraftClient>>,
     #[cfg(feature = "live-cofl")]
     cofl: BTreeMap<AccountId, Arc<LiveCoflClient>>,
+    /// Shared "panic stop" flag. A Stop All (`stop(None)`) arms it; any explicit
+    /// start disarms it. The poll loop and background tasks read the same flag.
+    halted: Arc<AtomicBool>,
 }
 
 impl LiveAccountSupervisor {
@@ -22,6 +26,7 @@ impl LiveAccountSupervisor {
         accounts: Vec<AccountId>,
         running: Vec<AccountId>,
         minecraft: BTreeMap<AccountId, Arc<ManagedMinecraftClient>>,
+        halted: Arc<AtomicBool>,
     ) -> Self {
         let configured = accounts.into_iter().collect::<BTreeSet<_>>();
         let running = running
@@ -32,6 +37,7 @@ impl LiveAccountSupervisor {
             running: Arc::new(Mutex::new(running)),
             configured,
             minecraft,
+            halted,
         }
     }
 
@@ -41,6 +47,7 @@ impl LiveAccountSupervisor {
         running: Vec<AccountId>,
         minecraft: BTreeMap<AccountId, Arc<ManagedMinecraftClient>>,
         cofl: BTreeMap<AccountId, Arc<LiveCoflClient>>,
+        halted: Arc<AtomicBool>,
     ) -> Self {
         let configured = accounts.into_iter().collect::<BTreeSet<_>>();
         let running = running
@@ -52,6 +59,7 @@ impl LiveAccountSupervisor {
             configured,
             minecraft,
             cofl,
+            halted,
         }
     }
 }
@@ -64,6 +72,8 @@ impl AccountSupervisor for LiveAccountSupervisor {
                 "{account} is not configured for this runtime"
             )));
         }
+        // An explicit operator start re-arms the runtime after a panic stop.
+        self.halted.store(false, Ordering::SeqCst);
         tracing::info!(account = %account, "starting account supervisor target");
         if let Some(client) = self.minecraft.get(account) {
             client.force_connect().await?;
@@ -81,6 +91,15 @@ impl AccountSupervisor for LiveAccountSupervisor {
     }
 
     async fn stop(&self, account: Option<AccountId>) -> Result<(), PortError> {
+        // Stop All is the operator panic stop: latch the halt so no background
+        // task (auto-rotate, scheduler, deferred drains) can restart accounts
+        // until an explicit start. A single-account stop leaves others running.
+        if account.is_none() {
+            self.halted.store(true, Ordering::SeqCst);
+            tracing::warn!(
+                "Stop All engaged: halting all flipping and account restarts until an explicit start"
+            );
+        }
         let targets = if let Some(account) = account {
             vec![account]
         } else {

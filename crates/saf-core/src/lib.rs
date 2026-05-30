@@ -35,8 +35,8 @@ pub use config::SafConfig;
 pub use engine::{FlipOutcome, FlipProcessor};
 pub use flip::FlipEvent;
 pub use humanizer::{
-    BackoffConfig, BuyTimingConfig, Humanizer, HumanizerConfig, NormalDelayConfig,
-    ServerSwitchConfig, SessionConfig, ThrottleConfig,
+    BackoffConfig, BuyTimingConfig, Humanizer, HumanizerConfig, IdleAction, IdleBehaviorConfig,
+    NormalDelayConfig, ServerSwitchConfig, SessionConfig, ThrottleConfig, account_humanizer_seed,
 };
 pub use ids::{AccountId, AuctionId, ItemUuid};
 pub use island::{Locraw, get_locraw_move, parse_locraw_message};

@@ -379,6 +379,7 @@ async fn main() -> Result<()> {
                     account: account
                         .map(|account| AccountId::new(account).context("account is required"))
                         .transpose()?,
+                    ..Notification::default()
                 })
                 .await
                 .context("sending notification")?;

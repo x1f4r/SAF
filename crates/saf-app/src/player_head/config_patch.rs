@@ -14,9 +14,7 @@ pub(super) async fn update_config_version(config_path: &Path, version: &str) -> 
     if next == raw {
         return Ok(true);
     }
-    let temp_path = config_path.with_extension("json5.tmp");
-    tokio::fs::write(&temp_path, next).await?;
-    tokio::fs::rename(&temp_path, config_path).await?;
+    crate::config_write::write_config_atomic(config_path, next).await?;
     Ok(true)
 }
 

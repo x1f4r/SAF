@@ -1,5 +1,5 @@
 use super::super::{notify_operator_best_effort, now_ms};
-use saf_core::ports::{Notification, ScheduledAccountAction};
+use saf_core::ports::{Notification, NotificationKind, ScheduledAccountAction};
 use saf_core::{AccountId, Humanizer, RuntimeDirective, RuntimeSession, SafConfig};
 use std::collections::BTreeSet;
 use std::sync::{
@@ -159,6 +159,7 @@ pub(in crate::live_runtime) fn start_auto_rotate_tasks(
     schedules: Vec<AutoRotateSchedule>,
     session: Arc<RuntimeSession>,
     shutdown: Arc<AtomicBool>,
+    halted: Arc<AtomicBool>,
     humanizer: Arc<Humanizer>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     schedules
@@ -166,6 +167,7 @@ pub(in crate::live_runtime) fn start_auto_rotate_tasks(
         .map(|schedule| {
             let session = session.clone();
             let shutdown = shutdown.clone();
+            let halted = halted.clone();
             let humanizer = humanizer.clone();
             tokio::spawn(async move {
                 if schedule.rest_first() {
@@ -178,6 +180,17 @@ pub(in crate::live_runtime) fn start_auto_rotate_tasks(
                         sleep(jittered_delay).await;
                         if shutdown.load(Ordering::SeqCst) {
                             return;
+                        }
+                        // While halted (operator Stop All), never bring an account
+                        // back online; a logoff is still allowed to run.
+                        if halted.load(Ordering::SeqCst)
+                            && matches!(action, ScheduledAccountAction::Start)
+                        {
+                            tracing::warn!(
+                                account = %schedule.account,
+                                "skipping auto-rotate start while runtime is halted (Stop All)"
+                            );
+                            continue;
                         }
                         execute_auto_rotate_action(
                             &session,
@@ -226,15 +239,19 @@ async fn notify_auto_rotate_waiting(
     let first_start_delay = humanizer.jitter_session_leg(schedule.action_steps()[0].0);
     notify_operator_best_effort(
         session,
-        Notification {
-            title: "Waiting".to_string(),
-            body: format!(
+        Notification::new(
+            NotificationKind::Info,
+            "Waiting",
+            format!(
                 "`{}` rests first and will log on in <t:{}:R>.",
                 schedule.account,
                 unix_timestamp_after(first_start_delay)
             ),
-            account: Some(schedule.account.clone()),
-        },
+            Some(schedule.account.clone()),
+        )
+        .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+            schedule.account.as_str(),
+        )),
     )
     .await;
 }
@@ -245,8 +262,9 @@ async fn notify_auto_rotate_action(
     action: ScheduledAccountAction,
     next_delay: Duration,
 ) {
-    let (title, body) = match action {
+    let (kind, title, body) = match action {
         ScheduledAccountAction::Start => (
+            NotificationKind::Started,
             "Started flipping",
             format!(
                 "Logged in as `{account}`.\nWill log off in <t:{}:R>.",
@@ -254,6 +272,7 @@ async fn notify_auto_rotate_action(
             ),
         ),
         ScheduledAccountAction::Stop => (
+            NotificationKind::Stopped,
             "Killed bot",
             format!(
                 "Stopped `{account}`.\nWill log on in <t:{}:R>.",
@@ -263,11 +282,9 @@ async fn notify_auto_rotate_action(
     };
     notify_operator_best_effort(
         session,
-        Notification {
-            title: title.to_string(),
-            body,
-            account: Some(account.clone()),
-        },
+        Notification::new(kind, title, body, Some(account.clone())).with_thumbnail(
+            crate::player_head::account_head_thumbnail_url(account.as_str()),
+        ),
     )
     .await;
 }

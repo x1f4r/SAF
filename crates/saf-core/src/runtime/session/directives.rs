@@ -376,6 +376,7 @@ impl RuntimeSession {
                     title: "SAF test".to_string(),
                     body: "Webhook notifier path is connected.".to_string(),
                     account: Some(account.clone()),
+                    ..Notification::default()
                 })
                 .await?;
                 Ok(RuntimeOutcome::Executed { directive })

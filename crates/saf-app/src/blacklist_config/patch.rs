@@ -1,6 +1,5 @@
 use serde_json::Value;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 
 pub(super) fn patch_config_array(
     raw: &str,
@@ -13,17 +12,6 @@ pub(super) fn patch_config_array(
     let replacement = serde_json::to_string_pretty(&Value::Array(entries.to_vec())).ok()?;
     next.replace_range(range, &replacement);
     Some(next)
-}
-
-pub(super) fn temp_config_path(path: &Path) -> PathBuf {
-    let mut temp = path.to_path_buf();
-    let extension = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| format!("{extension}.tmp"))
-        .unwrap_or_else(|| "tmp".to_string());
-    temp.set_extension(extension);
-    temp
 }
 
 fn find_json5_array_range(raw: &str, section: &str, field: &str) -> Option<Range<usize>> {

@@ -1,4 +1,12 @@
 use super::*;
+
+/// Serialize a reply's embed cards so tests can assert on the rendered title,
+/// colour, description, and fields without depending on serenity internals.
+#[cfg(feature = "live-discord")]
+fn embed_json(reply: &DiscordInteractionReply) -> String {
+    serde_json::to_string(&reply.embeds).unwrap()
+}
+
 #[cfg(feature = "live-discord")]
 #[tokio::test]
 async fn live_discord_dashboard_returns_button_controls() {
@@ -60,6 +68,12 @@ async fn live_discord_dashboard_returns_button_controls() {
             .content
             .contains("`Main` queue 1 auctions unknown purse 1.20m Cofl conn-main")
     );
+    // The card is rendered as a blurple embed mirroring the dashboard prose.
+    let embed = embed_json(&reply);
+    assert_eq!(reply.embeds.len(), 1);
+    assert!(embed.contains("Dashboard"));
+    assert!(embed.contains("Running: Main, Alt"));
+    assert!(embed.contains(&saf_discord::COLOR_BLURPLE.to_string()));
     assert!(components.contains("saf:dashboard"));
     assert!(components.contains("saf:start"));
     assert!(components.contains("saf:stop:all"));
@@ -145,6 +159,13 @@ async fn live_discord_account_panel_returns_account_controls() {
     assert!(reply.content.contains("Queue: 0"));
     assert!(reply.content.contains("Auctions: unknown"));
     assert!(reply.content.contains("Cofl: pending"));
+    // The account card carries structured fields plus the player-head thumbnail.
+    let embed = embed_json(&reply);
+    assert_eq!(reply.embeds.len(), 1);
+    assert!(embed.contains("Account Alt"));
+    assert!(embed.contains("Queue"));
+    assert!(embed.contains("Cofl"));
+    assert!(embed.contains("crafthead.net/cube/Alt"));
     assert!(components.contains("saf:stats:Alt"));
     assert!(components.contains("saf:queue:Alt"));
     assert!(components.contains("saf:sellInventory:Alt:0"));

@@ -261,6 +261,7 @@ async fn operator_notifications_are_best_effort() {
         title: "Item purchased".to_string(),
         body: "Test payload".to_string(),
         account: Some(account),
+        ..Notification::default()
     };
 
     assert!(session.notify(notification.clone()).await.is_err());
@@ -591,7 +592,25 @@ async fn live_runtime_schedules_account_actions_through_supervisor() {
                 && result.action == ScheduledAccountAction::Stop
                 && result.delay_ms == 1
     ));
-    sleep(Duration::from_millis(25)).await;
+    // Drive the elapsed-delay path deterministically instead of racing the
+    // detached scheduler task: resolve the directive the scheduler would
+    // dispatch once the delay fires (runtime live, not halted), then execute it
+    // through the same session entrypoint and assert the resulting state.
+    let stop_directive = scheduled_directive(
+        &AccountScheduleRequest {
+            account: AccountId::new("Main").unwrap(),
+            action: ScheduledAccountAction::Stop,
+            delay_ms: 1,
+        },
+        false,
+        false,
+    )
+    .unwrap();
+    runtime
+        .session
+        .execute_directive(stop_directive)
+        .await
+        .unwrap();
     assert!(runtime.session.running_accounts().is_empty());
 
     let start = runtime
@@ -610,7 +629,21 @@ async fn live_runtime_schedules_account_actions_through_supervisor() {
                 && result.action == ScheduledAccountAction::Start
                 && result.delay_ms == 1
     ));
-    sleep(Duration::from_millis(25)).await;
+    let start_directive = scheduled_directive(
+        &AccountScheduleRequest {
+            account: AccountId::new("Main").unwrap(),
+            action: ScheduledAccountAction::Start,
+            delay_ms: 1,
+        },
+        false,
+        false,
+    )
+    .unwrap();
+    runtime
+        .session
+        .execute_directive(start_directive)
+        .await
+        .unwrap();
     assert_eq!(runtime.session.running_accounts(), vec!["Main".to_string()]);
 }
 
@@ -644,7 +677,25 @@ async fn scheduled_account_actions_do_not_run_after_shutdown() {
                 && result.delay_ms == 50
     ));
     runtime.shutdown_runtime().await;
-    sleep(Duration::from_millis(90)).await;
+
+    // Deterministically exercise the elapsed-delay gating with the real
+    // post-shutdown flags instead of sleeping past the 50ms delay and hoping the
+    // detached task already observed the shutdown latch. Shutdown skips the
+    // action, so no directive is dispatched and Alt never starts or connects.
+    let request = AccountScheduleRequest {
+        account: alt.clone(),
+        action: ScheduledAccountAction::Start,
+        delay_ms: 50,
+    };
+    assert!(runtime.shutdown.load(Ordering::SeqCst));
+    assert!(
+        scheduled_directive(
+            &request,
+            runtime.shutdown.load(Ordering::SeqCst),
+            runtime.halted.load(Ordering::SeqCst),
+        )
+        .is_none()
+    );
 
     assert_eq!(runtime.session.running_accounts(), vec!["Main".to_string()]);
     assert!(

@@ -4,7 +4,9 @@ use super::{
     AccountId, LiveRuntime, PURCHASE_RELIST_MAX_ATTEMPTS, PURCHASE_RELIST_RETRY_DELAY,
     PendingCompletionKind, PurchaseStatsUpdate, Result,
 };
-use saf_core::ports::{InventoryItem, InventoryProvider, Notification, PortError, QueueStore};
+use saf_core::ports::{
+    InventoryItem, InventoryProvider, Notification, NotificationKind, PortError, QueueStore,
+};
 use saf_core::{
     BlacklistPolicy, BotState, ItemContext, ItemUuid, MarketInstruction, QueueEntry, RelistPlan,
     RelistPurchase,
@@ -304,15 +306,20 @@ impl LiveRuntime {
             );
             notify_operator_best_effort(
                 self.session.as_ref(),
-                Notification {
-                    title: "Purchased item recovery needed".to_string(),
-                    body: format!(
+                Notification::new(
+                    NotificationKind::Error,
+                    "Purchased item recovery needed",
+                    format!(
                         "`{}` bought `{}` but Rust still cannot see the claimed inventory item after {claim_attempts} claim attempts. It did not queue a listing with an unsafe fallback selector.",
                         account.as_str(),
                         purchase.item_name
                     ),
-                    account: Some(account.clone()),
-                },
+                    Some(account.clone()),
+                )
+                .with_fields(vec![("Item".to_string(), purchase.item_name.clone())])
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    account.as_str(),
+                )),
             )
             .await;
             return Ok(true);
@@ -437,14 +444,18 @@ impl LiveRuntime {
             );
             notify_operator_best_effort(
                 self.session.as_ref(),
-                Notification {
-                    title: "Purchased item claim skipped".to_string(),
-                    body: format!(
+                Notification::new(
+                    NotificationKind::Error,
+                    "Purchased item claim skipped",
+                    format!(
                         "`{}` could not find a claim button for the purchased auction. The listing was not queued.",
                         account.as_str()
                     ),
-                    account: Some(account.clone()),
-                },
+                    Some(account.clone()),
+                )
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    account.as_str(),
+                )),
             )
             .await;
         }

@@ -169,6 +169,8 @@ impl AzaleaMinecraftClient {
             | MinecraftAction::SetHeldHotbarSlot(_)
             | MinecraftAction::ActivateHeldItem
             | MinecraftAction::TypeText(_)
+            | MinecraftAction::LookDelta { .. }
+            | MinecraftAction::Jump
             | MinecraftAction::CloseWindow
             | MinecraftAction::Disconnect => None,
         }
@@ -254,6 +256,32 @@ impl MinecraftClient for AzaleaMinecraftClient {
                         lines: sign_update_lines(&text),
                     },
                 );
+                Ok(())
+            }
+            MinecraftAction::LookDelta {
+                yaw_delta,
+                pitch_delta,
+            } => {
+                // Rotate the view by a small relative delta. Reading the
+                // current direction and applying `set_direction` (which routes
+                // through `LookDirection::update`) keeps the move-rotation
+                // packet cadence indistinguishable from a real mouse nudge and
+                // never translates the body.
+                let current = self
+                    .client
+                    .direction()
+                    .map_err(|error| PortError::Failed(error.to_string()))?;
+                let yaw = wrap_yaw_degrees(current.y_rot() + yaw_delta);
+                let pitch = (current.x_rot() + pitch_delta).clamp(-89.0, 89.0);
+                self.client
+                    .set_direction(yaw, pitch)
+                    .map_err(|error| PortError::Failed(error.to_string()))?;
+                Ok(())
+            }
+            MinecraftAction::Jump => {
+                // A single in-place hop. `jump` only queues vertical motion for
+                // the next tick, so it cannot walk the avatar off its island.
+                self.client.jump();
                 Ok(())
             }
             MinecraftAction::CloseWindow => {
@@ -405,6 +433,13 @@ pub enum AzaleaConnectError {
     Auth(#[from] azalea_crate::auth::AuthError),
     #[error("azalea connect failed: {0}")]
     Join(#[from] azalea_crate::protocol::resolve::ResolveError),
+}
+
+/// Normalise a yaw value into the vanilla `[-180, 180)` range so repeated
+/// idle nudges never accumulate into an absurd absolute rotation.
+fn wrap_yaw_degrees(yaw: f32) -> f32 {
+    let wrapped = (yaw + 180.0).rem_euclid(360.0) - 180.0;
+    if wrapped.is_finite() { wrapped } else { 0.0 }
 }
 
 fn sign_update_position(position: azalea_crate::Vec3) -> azalea_crate::BlockPos {

@@ -588,6 +588,7 @@ fn notification_payload_uses_discord_embed_limits_and_account_footer() {
         title: "T".repeat(300),
         body: "B".repeat(5000),
         account: Some(AccountId::new("Main").unwrap()),
+        ..Notification::default()
     };
     let payload = notification_payload(
         &notification,
@@ -607,4 +608,51 @@ fn notification_payload_uses_discord_embed_limits_and_account_footer() {
             text: "Main".to_string()
         })
     );
+}
+
+#[test]
+fn notification_payload_colors_and_structures_event_cards() {
+    let notification = Notification::new(
+        saf_core::ports::NotificationKind::Bought,
+        "Item purchased",
+        "Bought a Hyperion.",
+        Some(AccountId::new("Main").unwrap()),
+    )
+    .with_fields(vec![
+        ("Item".to_string(), "Hyperion".to_string()),
+        ("Profit".to_string(), "1.2M".to_string()),
+    ])
+    .with_thumbnail(Some("https://crafthead.net/cube/Main".to_string()));
+    let payload = notification_payload(
+        &notification,
+        &DiscordWebhookIdentity {
+            username: Some("SAF".to_string()),
+            avatar_url: Some("https://example.invalid/icon.png".to_string()),
+        },
+    );
+    let embed = &payload.embeds[0];
+
+    assert_eq!(embed.color, saf_discord_kind_color(notification.kind));
+    assert!(embed.title.contains("Item purchased"));
+    assert_eq!(
+        embed.author,
+        Some(DiscordEmbedAuthor {
+            name: "SAF".to_string(),
+            icon_url: Some("https://example.invalid/icon.png".to_string()),
+        })
+    );
+    assert_eq!(
+        embed.thumbnail,
+        Some(DiscordEmbedThumbnail {
+            url: "https://crafthead.net/cube/Main".to_string()
+        })
+    );
+    assert_eq!(embed.fields.len(), 2);
+    assert_eq!(embed.fields[0].name, "Item");
+    assert_eq!(embed.fields[0].value, "Hyperion");
+    assert!(embed.fields[0].inline);
+}
+
+fn saf_discord_kind_color(kind: saf_core::ports::NotificationKind) -> u32 {
+    super::kind_color(kind)
 }

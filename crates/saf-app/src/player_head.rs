@@ -141,6 +141,17 @@ pub struct PlayerHeadRefreshEntry {
     pub head_url: String,
 }
 
+/// Best-effort player-head thumbnail keyed off the in-game name. Used by the
+/// operator notification cards when no cached texture hash is available; the
+/// crafthead cube endpoint renders a 3D head from the username directly.
+pub fn account_head_thumbnail_url(ign: &str) -> Option<String> {
+    let ign = ign.trim();
+    if ign.is_empty() {
+        return None;
+    }
+    Some(format!("https://crafthead.net/cube/{}", url_encode(ign)))
+}
+
 pub fn build_player_head_url(
     uuid: &str,
     version: &str,

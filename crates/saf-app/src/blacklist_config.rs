@@ -5,7 +5,7 @@ mod snapshot;
 
 use async_trait::async_trait;
 use document::{config_array_or_effective, parse_config_value, set_config_array};
-use patch::{patch_config_array, temp_config_path};
+use patch::patch_config_array;
 use rules::{entry_expired, entry_key, normalize_update_value, update_expires_at};
 use saf_core::ports::{BlacklistStore, PortError};
 use saf_core::{
@@ -44,18 +44,10 @@ impl FileBlacklistStore {
     }
 
     async fn write_raw(&self, raw: String) -> Result<(), PortError> {
-        let temp_path = temp_config_path(&self.config_path);
-        tokio::fs::write(&temp_path, raw).await.map_err(|error| {
-            PortError::Failed(format!("write {}: {error}", temp_path.display()))
-        })?;
-        tokio::fs::rename(&temp_path, &self.config_path)
+        crate::config_write::write_config_atomic(&self.config_path, raw)
             .await
             .map_err(|error| {
-                PortError::Failed(format!(
-                    "replace {} with {}: {error}",
-                    self.config_path.display(),
-                    temp_path.display()
-                ))
+                PortError::Failed(format!("write {}: {error}", self.config_path.display()))
             })
     }
 

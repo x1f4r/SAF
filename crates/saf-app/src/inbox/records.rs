@@ -43,7 +43,7 @@ pub struct CoflCommandRecord {
     pub command: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinecraftActionRecord {
     pub account: AccountId,

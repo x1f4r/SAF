@@ -11,6 +11,7 @@ use saf_core::ports::{
 use saf_core::{AccountId, RuntimeSession};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -72,6 +73,11 @@ pub(in crate::live_runtime) struct ManagedMinecraftClient {
     pub(in crate::live_runtime) reconnect_delay: Duration,
     pub(in crate::live_runtime) reconnect_failures: Arc<AsyncMutex<u32>>,
     pub(in crate::live_runtime) price_lookup: Option<Arc<dyn InventoryPriceLookup>>,
+    /// Set when the account was intentionally stopped by an operator (per-account
+    /// stop, Stop All, or shutdown). A stopped client refuses to reconnect on
+    /// `perform`/`next_event`, so an in-flight task (e.g. auto-cookie) can never
+    /// silently bring a stopped account back online. Cleared by `force_connect`.
+    pub(in crate::live_runtime) stopped: Arc<AtomicBool>,
 }
 
 impl ManagedMinecraftClient {
@@ -96,6 +102,7 @@ impl ManagedMinecraftClient {
             reconnect_delay: Duration::from_secs(5),
             reconnect_failures: Arc::new(AsyncMutex::new(0)),
             price_lookup,
+            stopped: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -112,6 +119,7 @@ impl ManagedMinecraftClient {
             reconnect_delay: Duration::from_secs(5),
             reconnect_failures: Arc::new(AsyncMutex::new(0)),
             price_lookup,
+            stopped: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -130,6 +138,7 @@ impl ManagedMinecraftClient {
             reconnect_delay: Duration::from_secs(5),
             reconnect_failures: Arc::new(AsyncMutex::new(0)),
             price_lookup,
+            stopped: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -138,6 +147,7 @@ impl ManagedMinecraftClient {
     }
 
     pub(in crate::live_runtime) async fn force_connect(&self) -> Result<(), PortError> {
+        self.stopped.store(false, Ordering::SeqCst);
         *self.reconnect_at.lock().await = None;
         self.reset_reconnect_backoff().await;
         self.connect_if_needed_with_policy(true).await
@@ -149,6 +159,12 @@ impl ManagedMinecraftClient {
             if inner.is_some() {
                 return Ok(());
             }
+        }
+        if !force && self.stopped.load(Ordering::SeqCst) {
+            return Err(PortError::Unavailable(format!(
+                "minecraft client for {} was intentionally stopped",
+                self.account
+            )));
         }
         if !force {
             let now = Instant::now();
@@ -182,6 +198,7 @@ impl ManagedMinecraftClient {
     }
 
     pub(in crate::live_runtime) async fn disconnect(&self) -> Result<(), PortError> {
+        self.stopped.store(true, Ordering::SeqCst);
         let bundle = self.inner.lock().await.take();
         *self.reconnect_at.lock().await = None;
         self.reset_reconnect_backoff().await;
@@ -215,6 +232,9 @@ impl ManagedMinecraftClient {
             if inner.is_some() {
                 return Ok(true);
             }
+        }
+        if self.stopped.load(Ordering::SeqCst) {
+            return Ok(false);
         }
         let now = Instant::now();
         {
@@ -419,6 +439,80 @@ impl InventoryProvider for ManagedMinecraftClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    struct RecordingClient {
+        account: AccountId,
+        performed: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MinecraftClient for RecordingClient {
+        async fn account(&self) -> AccountId {
+            self.account.clone()
+        }
+
+        async fn perform(&self, action: MinecraftAction) -> Result<(), PortError> {
+            if !matches!(action, MinecraftAction::Disconnect) {
+                self.performed.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+
+        async fn next_event(&self) -> Result<Option<MinecraftEvent>, PortError> {
+            Ok(None)
+        }
+    }
+
+    #[tokio::test]
+    async fn stopped_client_does_not_reconnect_on_perform() {
+        let account = AccountId::new("Main").expect("account");
+        let mock = Arc::new(RecordingClient {
+            account: account.clone(),
+            performed: AtomicUsize::new(0),
+        });
+        let managed = ManagedMinecraftClient::from_bundle(
+            account.clone(),
+            MarketActionMode::Live,
+            LiveMinecraftClientBundle {
+                minecraft: mock.clone(),
+                inventory_provider: None,
+            },
+            None,
+        );
+
+        // While connected, a non-market action is forwarded to the live client.
+        managed
+            .perform(MinecraftAction::Chat("hi".to_string()))
+            .await
+            .expect("connected perform");
+        assert_eq!(mock.performed.load(Ordering::SeqCst), 1);
+        assert!(managed.has_active_runtime().await);
+
+        // Operator stop disconnects and arms the inert guard.
+        managed.disconnect().await.expect("disconnect");
+        assert!(!managed.has_active_runtime().await);
+
+        // An in-flight task (e.g. auto-cookie) must NOT silently reconnect the
+        // stopped account: perform fails fast instead of dialing Hypixel again.
+        let result = managed
+            .perform(MinecraftAction::Chat("again".to_string()))
+            .await;
+        assert!(result.is_err(), "stopped client must refuse to act");
+        assert_eq!(
+            mock.performed.load(Ordering::SeqCst),
+            1,
+            "no further actions are forwarded after a stop"
+        );
+        assert!(
+            !managed.has_active_runtime().await,
+            "stopped client stayed disconnected"
+        );
+
+        // Clearing the flag (as force_connect does on an explicit start) lifts the guard.
+        managed.stopped.store(false, Ordering::SeqCst);
+        assert!(!managed.stopped.load(Ordering::SeqCst));
+    }
 
     #[test]
     fn reconnect_delay_env_parser_rejects_empty_zero_and_invalid_values() {

@@ -7,7 +7,7 @@ use super::client::LiveCoflClient;
 use super::live_buy::{PendingLiveBuy, timed_bed_click_at};
 use anyhow::{Context, Result};
 use saf_cofl::CoflExecuteInstruction;
-use saf_core::ports::{CoflClient, Notification, Notifier};
+use saf_core::ports::{CoflClient, Notification, NotificationKind, Notifier};
 use saf_core::{
     AccountId, FlipEvent, FlipOutcome, Humanizer, RuntimeDirective, RuntimeOutcome, RuntimeSession,
 };
@@ -508,6 +508,10 @@ impl LiveCoflStream {
             let profit_for_bias = flip.profit.max(flip.target - flip.starting_bid);
             let buy_action_retry_delay =
                 Duration::from_millis(self.humanizer.buy_reaction_ms(profit_for_bias));
+            // Independent profit-biased reaction draw that gates the FIRST click
+            // once the auction window is observed (see live_buy.rs reaction gate).
+            let buy_reaction_delay =
+                Duration::from_millis(self.humanizer.buy_reaction_ms(profit_for_bias));
             let timed_bed_click_delay = self.humanizer.click_stream_delay();
             self.pending_live_buys
                 .lock()
@@ -526,6 +530,8 @@ impl LiveCoflStream {
                         bed_click_delay: self.bed_click_delay,
                         timed_bed_click_delay,
                         buy_action_retry_delay,
+                        buy_reaction_delay,
+                        window_seen_at: None,
                         bed_spam_until: None,
                         timed_bed_clicks: 0,
                         timed_bed_cleanup_at: None,
@@ -643,14 +649,18 @@ impl LiveCoflStream {
         for link in fresh_links {
             notify_operator_best_effort(
                 session,
-                Notification {
-                    title: "SkyCofl Login Required".to_string(),
-                    body: format!(
+                Notification::new(
+                    NotificationKind::LoginRequired,
+                    "SkyCofl Login Required",
+                    format!(
                         "Authorize `{}` for the persisted SkyCofl session:\n{}\nKeep the runtime running while the login finishes.",
                         self.account, link
                     ),
-                    account: Some(self.account.clone()),
-                },
+                    Some(self.account.clone()),
+                )
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    self.account.as_str(),
+                )),
             )
             .await;
         }

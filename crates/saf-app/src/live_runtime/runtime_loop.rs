@@ -6,10 +6,11 @@ use saf_core::gui::WindowSnapshot;
 use saf_core::{RuntimeDirective, RuntimeOutcome};
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use super::inventory_logging::log_inventory_snapshot;
-use super::{DryRunMarketAction, LiveRuntime, RunLiveReport};
+use super::{DryRunMarketAction, LiveRuntime, MARKET_WINDOW_SETTLE_DELAY, RunLiveReport};
 
 impl LiveRuntime {
     pub async fn poll_once(&mut self) -> Result<Vec<InboxCommandResult>> {
@@ -35,6 +36,14 @@ impl LiveRuntime {
             results
         };
         self.reconcile_inactive_accounts()?;
+        if self.is_halted() {
+            // Operator panic stop (Stop All) or runtime pause (.saf-paused):
+            // keep the controller responsive but perform NO account or market
+            // work — no flips, buys, listings, banking, drains, or reconnects —
+            // until an explicit start clears the halt.
+            self.poll_discord_gateway_once().await?;
+            return Ok(results);
+        }
         self.poll_minecraft_once().await?;
         self.process_pending_live_buys_once().await?;
         self.poll_cofl_once().await?;
@@ -108,6 +117,10 @@ impl LiveRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("active window timestamp lock poisoned"))?
             .retain(|account, _| running.contains(account));
+        self.market_settle_jitter
+            .lock()
+            .map_err(|_| anyhow::anyhow!("market settle jitter lock poisoned"))?
+            .retain(|account, _| running.contains(account));
         self.deferred_minecraft_events
             .lock()
             .map_err(|_| anyhow::anyhow!("deferred Minecraft event lock poisoned"))?
@@ -139,6 +152,14 @@ impl LiveRuntime {
 
     pub(in crate::live_runtime) fn running_account_set(&self) -> BTreeSet<AccountId> {
         self.running_accounts().into_iter().collect()
+    }
+
+    /// True when the runtime must not perform any account or market work: either
+    /// the operator latched a Stop All (`halted`) or a pause is active via
+    /// `SAF_START_PAUSED` / the `.saf-paused` file (re-checked every poll, so it
+    /// is a live out-of-band kill switch).
+    pub(in crate::live_runtime) fn is_halted(&self) -> bool {
+        self.halted.load(Ordering::SeqCst) || super::lifecycle::startup_paused()
     }
 
     pub fn report(&self) -> RunLiveReport {
@@ -193,10 +214,25 @@ impl LiveRuntime {
             .map_err(|_| anyhow::anyhow!("active window received timestamp lock poisoned"))?
             .insert(account.clone(), received_at);
         if changed {
+            let observed_at = Instant::now();
             self.active_window_observed_at
                 .lock()
                 .map_err(|_| anyhow::anyhow!("active window timestamp lock poisoned"))?
-                .insert(account, Instant::now());
+                .insert(account.clone(), observed_at);
+            // Resample the jittered settle window for this account so menu/
+            // inter-click pacing varies every time instead of sitting on a fixed
+            // ~300 ms beat. Sampled from the per-account humanizer's
+            // default-action delay; falls back to the fixed delay if no
+            // per-account humanizer is wired (e.g. cofl-less builds).
+            let settle = self
+                .account_humanizers
+                .get(&account)
+                .map(|humanizer| humanizer.default_action_delay())
+                .unwrap_or(MARKET_WINDOW_SETTLE_DELAY);
+            self.market_settle_jitter
+                .lock()
+                .map_err(|_| anyhow::anyhow!("market settle jitter lock poisoned"))?
+                .insert(account, (observed_at, settle));
         }
         Ok(())
     }

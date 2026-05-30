@@ -5,7 +5,7 @@ use super::stats::ChatStatsUpdate;
 use super::tracked::SoldListingMetadata;
 use anyhow::Result;
 use saf_core::AccountId;
-use saf_core::ports::Notification;
+use saf_core::ports::{Notification, NotificationKind};
 
 impl LiveRuntime {
     pub(super) async fn handle_chat_stats_update(
@@ -18,11 +18,20 @@ impl LiveRuntime {
             let body = purchase_notification_body(&self.config, account, &purchase);
             notify_operator_best_effort(
                 self.session.as_ref(),
-                Notification {
-                    title: "Item purchased".to_string(),
+                Notification::new(
+                    NotificationKind::Bought,
+                    "Item purchased",
                     body,
-                    account: Some(account.clone()),
-                },
+                    Some(account.clone()),
+                )
+                .with_fields(vec![
+                    ("Item".to_string(), purchase.item_name.clone()),
+                    ("Cost".to_string(), format_coins(purchase.price as f64)),
+                    ("Expected profit".to_string(), format_coins(purchase.profit)),
+                ])
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    account.as_str(),
+                )),
             )
             .await;
             self.queue_purchase_relist(account, &purchase).await?;
@@ -53,21 +62,33 @@ impl LiveRuntime {
                 claim.item_name,
                 claim.buyer
             );
+            let mut fields = vec![
+                ("Item".to_string(), claim.item_name.clone()),
+                ("Collected".to_string(), format_coins(collected as f64)),
+                ("Buyer".to_string(), claim.buyer.clone()),
+            ];
             if let Some(metadata) = metadata {
                 if metadata.profit.is_finite() && metadata.profit != 0.0 {
                     body.push_str(&format!(" Profit: {}.", format_coins(metadata.profit)));
+                    fields.push(("Profit".to_string(), format_coins(metadata.profit)));
                 }
                 if !metadata.auction_id.trim().is_empty() {
                     body.push_str(&format!(" Auction: {}.", metadata.auction_id));
+                    fields.push(("Auction".to_string(), metadata.auction_id.clone()));
                 }
             }
             notify_operator_best_effort(
                 self.session.as_ref(),
-                Notification {
-                    title: "Item sold".to_string(),
+                Notification::new(
+                    NotificationKind::Sold,
+                    "Item sold",
                     body,
-                    account: Some(account.clone()),
-                },
+                    Some(account.clone()),
+                )
+                .with_fields(fields)
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    account.as_str(),
+                )),
             )
             .await;
         }

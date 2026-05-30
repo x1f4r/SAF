@@ -6,22 +6,100 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Discriminator describing the kind of operator event a [`Notification`]
+/// represents. Output layers (Discord embeds, webhooks) use it to pick a
+/// colour and icon so each event type reads at a glance.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NotificationKind {
+    FlipFound,
+    Bought,
+    Sold,
+    Listed,
+    Relisted,
+    Blocked,
+    Error,
+    LoginRequired,
+    Stopped,
+    Started,
+    #[default]
+    Info,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Notification {
+    #[serde(default)]
+    pub kind: NotificationKind,
     pub title: String,
     pub body: String,
     pub account: Option<AccountId>,
+    /// Structured `(label, value)` rows rendered as embed fields. Empty for
+    /// plain notifications.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<(String, String)>,
+    /// Player-head (or other) image used as the embed thumbnail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail_url: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+impl Notification {
+    /// Build a notification of the given kind with the standard text fields.
+    /// Structured `fields` and `thumbnail_url` start empty and can be added
+    /// with the builder methods.
+    pub fn new(
+        kind: NotificationKind,
+        title: impl Into<String>,
+        body: impl Into<String>,
+        account: Option<AccountId>,
+    ) -> Self {
+        Self {
+            kind,
+            title: title.into(),
+            body: body.into(),
+            account,
+            fields: Vec::new(),
+            thumbnail_url: None,
+        }
+    }
+
+    /// Attach structured `(label, value)` rows rendered as embed fields.
+    #[must_use]
+    pub fn with_fields(mut self, fields: Vec<(String, String)>) -> Self {
+        self.fields = fields;
+        self
+    }
+
+    /// Attach a thumbnail image (typically the account player head).
+    #[must_use]
+    pub fn with_thumbnail(mut self, thumbnail_url: Option<String>) -> Self {
+        self.thumbnail_url = thumbnail_url;
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum MinecraftAction {
     Chat(String),
     OpenAuction(AuctionId),
     ClickSlot(usize),
-    SwapSlotToHotbar { slot: usize, hotbar_slot: u8 },
+    SwapSlotToHotbar {
+        slot: usize,
+        hotbar_slot: u8,
+    },
     SetHeldHotbarSlot(u8),
     ActivateHeldItem,
     TypeText(String),
+    /// Nudge the avatar's view by a small relative yaw/pitch delta (degrees).
+    /// Used by the idle anti-AFK behaviour to look around without ever moving
+    /// the body — it is strictly a rotation and never a positional translation.
+    LookDelta {
+        yaw_delta: f32,
+        pitch_delta: f32,
+    },
+    /// Queue a single in-place jump for the next tick. Like `LookDelta`, this
+    /// produces no horizontal translation, so it can never walk the avatar off
+    /// its island.
+    Jump,
     CloseWindow,
     Disconnect,
 }

@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use saf_core::gui::WindowSnapshot;
 use saf_core::ports::{
     AccountConnectionProvider, AccountStats, AccountStatsProvider, MinecraftAction,
-    MinecraftClient, MinecraftEvent, Notification,
+    MinecraftClient, MinecraftEvent, Notification, NotificationKind,
 };
 use saf_core::{AccountId, BotState, MarketInstruction};
 use std::time::{Duration, Instant};
@@ -357,11 +357,15 @@ impl LiveRuntime {
         };
         notify_operator_best_effort(
             self.session.as_ref(),
-            Notification {
-                title: format!("{account} is now ready"),
-                body: startup_ready_notification_body(&stats, connection_id.as_deref()),
-                account: Some(account.clone()),
-            },
+            Notification::new(
+                NotificationKind::Started,
+                format!("{account} is now ready"),
+                startup_ready_notification_body(&stats, connection_id.as_deref()),
+                Some(account.clone()),
+            )
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
         )
         .await;
     }

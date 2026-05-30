@@ -14,7 +14,7 @@ use super::{
 };
 use anyhow::Result;
 use saf_core::gui::WindowSnapshot;
-use saf_core::ports::{Notification, QueueStore};
+use saf_core::ports::{Notification, NotificationKind, QueueStore};
 use saf_core::{AccountId, BotState, MarketInstruction, QueueEntry};
 use std::time::Instant;
 
@@ -568,14 +568,18 @@ impl LiveRuntime {
             .await?;
         notify_operator_best_effort(
             self.session.as_ref(),
-            Notification {
-                title: "Purchased claim unavailable".to_string(),
-                body: format!(
+            Notification::new(
+                NotificationKind::Error,
+                "Purchased claim unavailable",
+                format!(
                     "`{}` could not open a queued purchased auction after {attempts} attempts. Rust removed the stale claim entry so the queue can continue.",
                     account.as_str()
                 ),
-                account: Some(account.clone()),
-            },
+                Some(account.clone()),
+            )
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
         )
         .await;
         Ok(true)
@@ -622,14 +626,19 @@ impl LiveRuntime {
             .await?;
         notify_operator_best_effort(
             self.session.as_ref(),
-            Notification {
-                title: "Unsafe listing blocked".to_string(),
-                body: format!(
+            Notification::new(
+                NotificationKind::Blocked,
+                "Unsafe listing blocked",
+                format!(
                     "Blocked `{}` because {reason}. The queue entry was removed so it cannot list at the unsafe price.",
                     account.as_str()
                 ),
-                account: Some(account.clone()),
-            },
+                Some(account.clone()),
+            )
+            .with_fields(vec![("Reason".to_string(), reason.clone())])
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
         )
         .await;
         Ok(true)
@@ -758,14 +767,18 @@ impl LiveRuntime {
             .await?;
         notify_operator_best_effort(
             self.session.as_ref(),
-            Notification {
-                title: "Listing price mismatch".to_string(),
-                body: format!(
+            Notification::new(
+                NotificationKind::Blocked,
+                "Listing price mismatch",
+                format!(
                     "`{}` saw a listing confirmation price mismatch after {attempts} attempts. Rust queued auction reconciliation and removed the listing entry.",
                     account.as_str()
                 ),
-                account: Some(account.clone()),
-            },
+                Some(account.clone()),
+            )
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
         )
         .await;
         Ok(true)
@@ -819,8 +832,21 @@ impl LiveRuntime {
             .map_err(|_| anyhow::anyhow!("active window timestamp lock poisoned"))?
             .get(account)
             .copied();
-        Ok(observed_at
-            .is_some_and(|observed_at| observed_at.elapsed() < MARKET_WINDOW_SETTLE_DELAY))
+        let Some(observed_at) = observed_at else {
+            return Ok(false);
+        };
+        // Use the jittered settle sampled when this window was observed; fall
+        // back to the fixed delay if the sample is missing or stale (its key no
+        // longer matches the current observation).
+        let settle = self
+            .market_settle_jitter
+            .lock()
+            .map_err(|_| anyhow::anyhow!("market settle jitter lock poisoned"))?
+            .get(account)
+            .filter(|(sampled_for, _)| *sampled_for == observed_at)
+            .map(|(_, delay)| *delay)
+            .unwrap_or(MARKET_WINDOW_SETTLE_DELAY);
+        Ok(observed_at.elapsed() < settle)
     }
 
     pub(super) fn clear_stale_transition_window_if_needed(

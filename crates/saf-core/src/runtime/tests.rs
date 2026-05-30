@@ -954,6 +954,7 @@ async fn session_processes_flips_and_notifications_through_registered_ports() {
             title: "Bought".to_string(),
             body: "Hyperion".to_string(),
             account: Some(AccountId::new("MainAccount").unwrap()),
+            ..Notification::default()
         })
         .await
         .unwrap();
@@ -989,9 +990,12 @@ async fn session_executes_test_webhook_through_notifier() {
     assert_eq!(
         notifier.notifications.lock().unwrap().as_slice(),
         &[Notification {
+            kind: crate::ports::NotificationKind::Info,
             title: "SAF test".to_string(),
             body: "Webhook notifier path is connected.".to_string(),
-            account: Some(AccountId::new("MainAccount").unwrap())
+            account: Some(AccountId::new("MainAccount").unwrap()),
+            fields: Vec::new(),
+            thumbnail_url: None,
         }]
     );
 }

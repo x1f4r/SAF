@@ -31,11 +31,12 @@ use dashboard::{account_panel_reply, dashboard_reply, help_reply};
 use heads::refresh_heads_reply;
 #[cfg(all(test, feature = "live-discord"))]
 pub(super) use rendering::format_planned_directive;
+#[cfg(all(test, feature = "live-discord"))]
+pub(super) use replies::DiscordInteractionReply;
+#[cfg(all(not(test), feature = "live-discord"))]
+use replies::DiscordInteractionReply;
 #[cfg(feature = "live-discord")]
-use replies::{
-    DiscordInteractionReply, deferred_interaction_response, discord_reply_for_outcome,
-    format_runtime_error,
-};
+use replies::{deferred_interaction_response, discord_reply_for_outcome, format_runtime_error};
 
 #[cfg(feature = "live-discord")]
 #[derive(Clone, Debug)]

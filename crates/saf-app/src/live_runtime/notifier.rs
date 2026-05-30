@@ -2,6 +2,8 @@
 use super::support::strip_minecraft_color_codes;
 use super::{formatting::format_coins, stats::PurchaseStatsUpdate};
 use async_trait::async_trait;
+#[cfg(feature = "live-cofl")]
+use saf_core::ports::NotificationKind;
 use saf_core::ports::{Notification, Notifier, PortError};
 use saf_core::{AccountId, FlipEvent, RuntimeSession, SafConfig};
 use std::sync::Arc;
@@ -68,9 +70,10 @@ pub(super) fn all_flip_notification(account: &AccountId, flip: &FlipEvent) -> No
         .unwrap_or_else(|| "unknown".to_string());
     let item_name = strip_minecraft_color_codes(&flip.item_name);
     let buy_kind = flip_buy_kind(flip);
-    Notification {
-        title: "Flip Found".to_string(),
-        body: format!(
+    Notification::new(
+        NotificationKind::FlipFound,
+        "Flip Found",
+        format!(
             "{}: [`{}`](https://sky.coflnet.com/a/{}) `{}` -> `{}` (`{}` profit) [{}] `{}` volume",
             nicer_finder(&flip.finder),
             item_name,
@@ -81,8 +84,18 @@ pub(super) fn all_flip_notification(account: &AccountId, flip: &FlipEvent) -> No
             buy_kind,
             format_flip_volume(flip.volume)
         ),
-        account: Some(account.clone()),
-    }
+        Some(account.clone()),
+    )
+    .with_fields(vec![
+        ("Item".to_string(), item_name),
+        ("Cost".to_string(), format_flip_number(flip.starting_bid)),
+        ("Target".to_string(), format_flip_number(flip.target)),
+        ("Profit".to_string(), format_flip_number(flip.profit)),
+        ("Finder".to_string(), nicer_finder(&flip.finder)),
+    ])
+    .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+        account.as_str(),
+    ))
 }
 
 pub(super) fn flip_buy_kind(flip: &FlipEvent) -> &'static str {

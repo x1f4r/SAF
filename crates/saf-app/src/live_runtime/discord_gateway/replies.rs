@@ -2,14 +2,16 @@ use super::controls::{
     account_action_controls, blacklist_controls, dashboard_return_controls, inventory_controls,
     log_controls, queue_controls,
 };
-use super::rendering::{format_runtime_outcome, truncate_discord};
+use super::rendering::{format_runtime_outcome, outcome_embed, truncate_discord};
 use saf_core::ports::PortError;
 use saf_core::{AccountId, RuntimeDirective, RuntimeOutcome};
+use serenity::builder::CreateEmbed;
 use std::path::Path;
 
 #[derive(Clone, Debug)]
 pub(in crate::live_runtime) struct DiscordInteractionReply {
     pub(in crate::live_runtime) content: String,
+    pub(in crate::live_runtime) embeds: Vec<CreateEmbed>,
     pub(in crate::live_runtime) components: Vec<serenity::builder::CreateActionRow>,
     pub(in crate::live_runtime) files: Vec<serenity::builder::CreateAttachment>,
 }
@@ -18,6 +20,7 @@ impl DiscordInteractionReply {
     pub(in crate::live_runtime::discord_gateway) fn content(content: impl Into<String>) -> Self {
         Self {
             content: content.into(),
+            embeds: Vec::new(),
             components: Vec::new(),
             files: Vec::new(),
         }
@@ -29,6 +32,22 @@ impl DiscordInteractionReply {
     ) -> Self {
         Self {
             content: content.into(),
+            embeds: Vec::new(),
+            components,
+            files: Vec::new(),
+        }
+    }
+
+    /// Build a reply that renders an embed card while keeping the prose in
+    /// `content` for fallback/coverage. The buttons are preserved unchanged.
+    pub(in crate::live_runtime::discord_gateway) fn embed_with_components(
+        content: impl Into<String>,
+        embed: CreateEmbed,
+        components: Vec<serenity::builder::CreateActionRow>,
+    ) -> Self {
+        Self {
+            content: content.into(),
+            embeds: vec![embed],
             components,
             files: Vec::new(),
         }
@@ -42,16 +61,27 @@ impl DiscordInteractionReply {
         self.components = components;
     }
 
+    fn set_embed(&mut self, embed: CreateEmbed) {
+        self.embeds = vec![embed];
+    }
+
     pub(in crate::live_runtime::discord_gateway) fn into_edit_response(
         self,
     ) -> serenity::builder::EditInteractionResponse {
         let Self {
             content,
+            embeds,
             components,
             files,
         } = self;
-        let mut message =
-            serenity::builder::EditInteractionResponse::new().content(truncate_discord(&content));
+        let mut message = serenity::builder::EditInteractionResponse::new();
+        // Embed cards carry the rendered card; keep the plain text only when
+        // there is no embed so simple errors/confirmations still surface.
+        if embeds.is_empty() {
+            message = message.content(truncate_discord(&content));
+        } else {
+            message = message.content(String::new()).embeds(embeds);
+        }
         if !components.is_empty() {
             message = message.components(components);
         }
@@ -71,6 +101,7 @@ pub(super) fn deferred_interaction_response(
 
 pub(super) async fn discord_reply_for_outcome(outcome: &RuntimeOutcome) -> DiscordInteractionReply {
     let mut reply = DiscordInteractionReply::content(format_runtime_outcome(outcome));
+    reply.set_embed(outcome_embed(outcome));
     match outcome {
         RuntimeOutcome::LogSnapshot { snapshot } if snapshot.exists => {
             if let Some(file) = log_attachment(snapshot).await {

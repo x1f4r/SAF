@@ -9,4 +9,6 @@ pub(super) use rotation::{
     start_auto_rotate_tasks, startup_runtime_accounts_with_rotation,
 };
 pub(super) use scheduler::LiveAccountScheduler;
+#[cfg(test)]
+pub(super) use scheduler::scheduled_directive;
 pub(super) use supervisor::LiveAccountSupervisor;

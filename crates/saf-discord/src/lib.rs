@@ -2,6 +2,7 @@ use saf_core::ids::AccountId;
 use serde::{Deserialize, Serialize};
 
 mod commands;
+mod palette;
 mod planning;
 mod webhook;
 
@@ -9,13 +10,14 @@ pub use commands::{
     CommandDefinition, CommandOption, CommandOptionChoice, CommandOptionKind, command_definitions,
     validate_command_definitions,
 };
+pub use palette::{COLOR_BLURPLE, kind_color, kind_icon};
 pub use planning::{
     CommandInvocation, CommandOptionValue, DiscordCommandPlan, DiscordCommandPlanError,
     DiscordControllerAction, plan_button, plan_invocation,
 };
 pub use webhook::{
-    DiscordEmbed, DiscordEmbedFooter, DiscordWebhookIdentity, DiscordWebhookPayload,
-    notification_payload,
+    DiscordEmbed, DiscordEmbedAuthor, DiscordEmbedField, DiscordEmbedFooter, DiscordEmbedThumbnail,
+    DiscordWebhookIdentity, DiscordWebhookPayload, notification_payload,
 };
 
 pub enum DiscordCommand {

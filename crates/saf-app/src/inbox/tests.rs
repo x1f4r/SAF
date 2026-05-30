@@ -97,6 +97,7 @@ bad-json
             title: "SAF test".to_string(),
             body: "Webhook notifier path is connected.".to_string(),
             account: Some(AccountId::new("Main").unwrap()),
+            ..Notification::default()
         }]
     );
 }

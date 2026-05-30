@@ -16,6 +16,7 @@ mod deferred_queue;
 #[cfg(feature = "live-discord")]
 mod discord_gateway;
 mod formatting;
+mod idle;
 mod inbox_cursor;
 mod inventory_logging;
 mod island;
@@ -40,6 +41,8 @@ mod windows;
 
 #[cfg(test)]
 use account_control::parse_auto_rotate_schedule;
+#[cfg(test)]
+use account_control::scheduled_directive;
 use account_control::{
     LiveAccountScheduler, LiveAccountSupervisor, auto_rotate_schedules,
     configured_startup_runtime_accounts, runtime_accounts, start_auto_rotate_tasks,
@@ -74,10 +77,11 @@ use cofl::{LiveCoflStream, PendingLiveBuy, add_cofl_clients};
 use discord_gateway::start_discord_gateway;
 #[cfg(all(test, feature = "live-discord"))]
 use discord_gateway::{
-    DiscordGatewayConfig, execute_discord_plan, execute_discord_terminal,
+    DiscordGatewayConfig, DiscordInteractionReply, execute_discord_plan, execute_discord_terminal,
     format_inventory_listing_preview, format_planned_directive,
 };
 use formatting::startup_ready_notification_body;
+use idle::start_idle_behavior_tasks;
 pub use inbox_cursor::CommandInboxCursor;
 use island::LiveIslandState;
 pub use market_queue::DryRunMarketAction;
@@ -109,6 +113,8 @@ use saf_core::FlipEvent;
 use saf_core::gui::WindowSnapshot;
 #[cfg(test)]
 use saf_core::ports::AccountPing;
+#[cfg(test)]
+use saf_core::ports::AccountScheduleRequest;
 #[cfg(test)]
 use saf_core::ports::AccountStats;
 #[cfg(all(test, not(feature = "live-cofl")))]
@@ -221,6 +227,13 @@ pub struct LiveRuntime {
     active_windows: Arc<Mutex<BTreeMap<AccountId, WindowSnapshot>>>,
     active_window_received_at: Mutex<BTreeMap<AccountId, Instant>>,
     active_window_observed_at: Mutex<BTreeMap<AccountId, Instant>>,
+    /// Per-account jittered settle window for menu/inter-click pacing. Resampled
+    /// each time a new GUI window is observed so the menu-navigation cadence
+    /// (open menu, list, claim, bank, reconcile) varies every time instead of
+    /// sitting on a fixed ~300 ms beat. Keyed to the observed-at instant so a
+    /// stale sample is never reused across windows.
+    market_settle_jitter: Mutex<BTreeMap<AccountId, (Instant, Duration)>>,
+    account_humanizers: BTreeMap<AccountId, Arc<Humanizer>>,
     deferred_minecraft_events: DeferredMinecraftEvents,
     island_states: BTreeMap<AccountId, LiveIslandState>,
     cookie_prices: Arc<dyn CookiePriceProvider>,
@@ -239,6 +252,7 @@ pub struct LiveRuntime {
     pending_completed_entries: Vec<PendingCompletedQueueEntry>,
     pending_listing_confirmations: BTreeMap<AccountId, PendingListingConfirmation>,
     auto_rotate_tasks: Vec<tokio::task::JoinHandle<()>>,
+    idle_tasks: Vec<tokio::task::JoinHandle<()>>,
     #[cfg(feature = "live-cofl")]
     pending_live_buys: Arc<Mutex<BTreeMap<AccountId, PendingLiveBuy>>>,
     #[cfg(feature = "live-cofl")]
@@ -252,6 +266,11 @@ pub struct LiveRuntime {
     #[cfg(feature = "live-discord")]
     discord_restart_delay: Duration,
     shutdown: Arc<AtomicBool>,
+    /// Operator "panic stop". When set, the poll loop performs no account or
+    /// market work and background tasks (auto-rotate, scheduler) refuse to bring
+    /// accounts back online. Distinct from `shutdown`, which means the whole
+    /// process is exiting. Cleared by an explicit operator start.
+    halted: Arc<AtomicBool>,
     cofl_connections: usize,
     cofl_connected: usize,
     discord_started: bool,
@@ -315,9 +334,9 @@ async fn add_cofl_clients(
     accounts: &[AccountId],
     config: &SafConfig,
     options: &RunLiveOptions,
-    humanizer: Arc<Humanizer>,
+    account_humanizers: &BTreeMap<AccountId, Arc<Humanizer>>,
 ) -> Result<usize> {
-    let _ = (session, accounts, config, options, humanizer);
+    let _ = (session, accounts, config, options, account_humanizers);
     Ok(0)
 }
 

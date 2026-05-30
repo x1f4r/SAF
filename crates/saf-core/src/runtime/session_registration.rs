@@ -13,12 +13,9 @@ impl RuntimeSession {
             blacklist_stores: BTreeMap::new(),
             stats_providers: BTreeMap::new(),
             account_schedulers: BTreeMap::new(),
-            connection_providers: BTreeMap::new(),
             inventory_providers: BTreeMap::new(),
             active_auction_providers: BTreeMap::new(),
-            gui_diagnostics_providers: BTreeMap::new(),
             auction_metadata_provider: None,
-            tracked_flip_providers: BTreeMap::new(),
             fallback_tracked_flip_provider: None,
             fallback_connection_provider: None,
             fallback_inventory_provider: None,
@@ -152,15 +149,6 @@ impl RuntimeSession {
         self
     }
 
-    pub fn add_connection_provider(
-        &mut self,
-        account: AccountId,
-        provider: Arc<dyn AccountConnectionProvider>,
-    ) -> &mut Self {
-        self.connection_providers.insert(account, provider);
-        self
-    }
-
     pub fn set_fallback_connection_provider(
         &mut self,
         provider: Arc<dyn AccountConnectionProvider>,
@@ -208,15 +196,6 @@ impl RuntimeSession {
         self
     }
 
-    pub fn add_gui_diagnostics_provider(
-        &mut self,
-        account: AccountId,
-        provider: Arc<dyn GuiDiagnosticsProvider>,
-    ) -> &mut Self {
-        self.gui_diagnostics_providers.insert(account, provider);
-        self
-    }
-
     pub fn set_fallback_gui_diagnostics_provider(
         &mut self,
         provider: Arc<dyn GuiDiagnosticsProvider>,
@@ -230,15 +209,6 @@ impl RuntimeSession {
         provider: Arc<dyn AuctionMetadataProvider>,
     ) -> &mut Self {
         self.auction_metadata_provider = Some(provider);
-        self
-    }
-
-    pub fn add_tracked_flip_provider(
-        &mut self,
-        account: AccountId,
-        provider: Arc<dyn TrackedFlipProvider>,
-    ) -> &mut Self {
-        self.tracked_flip_providers.insert(account, provider);
         self
     }
 

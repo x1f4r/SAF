@@ -8,7 +8,7 @@ use super::{
 };
 use anyhow::Result;
 use saf_core::gui::WindowSnapshot;
-use saf_core::ports::{Notification, QueueStore};
+use saf_core::ports::{Notification, NotificationKind, QueueStore};
 use saf_core::{BotState, MarketInstruction, QueueEntry};
 use std::time::Instant;
 
@@ -123,14 +123,18 @@ impl LiveRuntime {
             .await?;
         notify_operator_best_effort(
             self.session.as_ref(),
-            Notification {
-                title: "Listing item missing".to_string(),
-                body: format!(
+            Notification::new(
+                NotificationKind::Blocked,
+                "Listing item missing",
+                format!(
                     "`{}` could not find the queued listing item after {attempts} attempts. Rust queued auction reconciliation and removed the listing entry.",
                     account.as_str()
                 ),
-                account: Some(account.clone()),
-            },
+                Some(account.clone()),
+            )
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
         )
         .await;
         Ok(true)

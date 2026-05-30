@@ -1,7 +1,7 @@
 use super::super::{LiveRuntime, MARKET_STEP_RETRY_INTERVAL, now_ms};
 use anyhow::Result;
 use saf_core::gui::{WindowSlot, WindowSnapshot, is_auction_action_slot};
-use saf_core::ports::{MinecraftAction, Notification};
+use saf_core::ports::{MinecraftAction, Notification, NotificationKind};
 use saf_core::{
     AccountId, AuctionId, MarketInstruction, MarketWorkflow, flip::ihate_taxes,
     relist::parse_old_price_from_lore_line,
@@ -29,6 +29,14 @@ pub(in crate::live_runtime) struct PendingLiveBuy {
     pub(in crate::live_runtime) bed_click_delay: Duration,
     pub(in crate::live_runtime) timed_bed_click_delay: Duration,
     pub(in crate::live_runtime) buy_action_retry_delay: Duration,
+    /// Sampled human reaction latency that gates the FIRST actionable click.
+    /// We refuse to click the auction window until this much wall time has
+    /// elapsed since the window was first observed, so the snipe never fires at
+    /// the ~10 ms poll cadence (the classic "instant bot" tell).
+    pub(in crate::live_runtime) buy_reaction_delay: Duration,
+    /// Instant the live-buy auction window was first observed for this pending
+    /// buy. Stamped once, the first time a window passes the freshness check.
+    pub(in crate::live_runtime) window_seen_at: Option<Instant>,
     pub(in crate::live_runtime) bed_spam_until: Option<Instant>,
     pub(in crate::live_runtime) timed_bed_clicks: u8,
     pub(in crate::live_runtime) timed_bed_cleanup_at: Option<Instant>,
@@ -59,6 +67,21 @@ impl LiveRuntime {
             .get_mut(account)
         {
             pending.last_attempt = Some(Instant::now());
+        }
+        Ok(())
+    }
+
+    /// Record the moment the live-buy auction window was first observed so the
+    /// human reaction gate has a stable reference. Idempotent: only the first
+    /// observation is stamped.
+    fn mark_pending_live_buy_window_seen(&self, account: &AccountId) -> Result<()> {
+        if let Some(pending) = self
+            .pending_live_buys
+            .lock()
+            .map_err(|_| anyhow::anyhow!("pending live-buy lock poisoned"))?
+            .get_mut(account)
+        {
+            pending.window_seen_at.get_or_insert_with(Instant::now);
         }
         Ok(())
     }
@@ -150,7 +173,7 @@ impl LiveRuntime {
             if !self.account_market_ready(&account) {
                 continue;
             }
-            let Some(pending) = self.pending_live_buy(&account)? else {
+            let Some(mut pending) = self.pending_live_buy(&account)? else {
                 continue;
             };
             let (window, received_at) = {
@@ -205,6 +228,16 @@ impl LiveRuntime {
                 self.mark_pending_live_buy_attempt(&account)?;
                 continue;
             }
+            // The auction-view window is open and is a genuine live-buy window:
+            // stamp the first-observation time so the human reaction gate below
+            // measures from when the window actually appeared, not from when the
+            // flip event arrived.
+            if window.is_some() && pending.window_seen_at.is_none() {
+                self.mark_pending_live_buy_window_seen(&account)?;
+                if let Some(refreshed) = self.pending_live_buy(&account)? {
+                    pending = refreshed;
+                }
+            }
             if window.is_none()
                 && pending
                     .action_clicked_at
@@ -244,6 +277,22 @@ impl LiveRuntime {
                 if pending.click_at.is_some_and(|click_at| click_at > now) {
                     continue;
                 }
+                // Human reaction gate for the FIRST actionable click. Until now
+                // the first click fired the instant the ~10 ms poll loop saw the
+                // auction-view window; here we hold it back until the sampled
+                // reaction latency has elapsed since the window first appeared.
+                // This applies to every first-click path (plain buy-now AND the
+                // bed-spam/timed-bed action click) so none of them can fire at
+                // bot speed. Confirm re-clicks keep using `buy_action_retry_delay`.
+                if pending.action_clicks == 0
+                    && !window.as_ref().is_some_and(is_confirm_purchase_window)
+                {
+                    let reaction_floor = pending.window_seen_at.unwrap_or(now);
+                    let elapsed = now.saturating_duration_since(reaction_floor);
+                    if elapsed < pending.buy_reaction_delay {
+                        continue;
+                    }
+                }
                 if pending.action_clicks == 0
                     && !window.as_ref().is_some_and(is_confirm_purchase_window)
                     && let Some(window) = &window
@@ -278,14 +327,21 @@ impl LiveRuntime {
                     );
                     if let Err(error) = self
                         .session
-                        .notify(Notification {
-                            title: "Blocked Cofl Buy".to_string(),
-                            body: format!(
-                                "`{}` was not bought because the auction window price was unsafe: {reason}",
-                                pending.auction_id
-                            ),
-                            account: Some(account.clone()),
-                        })
+                        .notify(
+                            Notification::new(
+                                NotificationKind::Blocked,
+                                "Blocked Cofl Buy",
+                                format!(
+                                    "`{}` was not bought because the auction window price was unsafe: {reason}",
+                                    pending.auction_id
+                                ),
+                                Some(account.clone()),
+                            )
+                            .with_fields(vec![("Reason".to_string(), reason.clone())])
+                            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                                account.as_str(),
+                            )),
+                        )
                         .await
                     {
                         tracing::warn!(

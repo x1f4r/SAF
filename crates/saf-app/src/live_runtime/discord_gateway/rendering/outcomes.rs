@@ -1,11 +1,15 @@
 use super::super::super::formatting::format_coins;
 use super::blacklist::format_blacklist_snapshot;
 use super::diagnostics::format_gui_slot_diagnostics;
+use super::embed::EmbedCard;
 use super::helpers::{
     compact_json, format_auction_slots, format_ms, list_or_none, truncate_discord,
 };
 use super::planned::format_planned_directive;
+use saf_core::engine::FlipOutcome;
+use saf_core::ports::{NotificationKind, ScheduledAccountAction};
 use saf_core::{AccountId, QueueEntry, RuntimeOutcome};
+use serenity::builder::CreateEmbed;
 
 pub(in crate::live_runtime::discord_gateway) fn format_runtime_outcome(
     outcome: &RuntimeOutcome,
@@ -140,8 +144,10 @@ pub(in crate::live_runtime::discord_gateway) fn format_runtime_outcome(
         RuntimeOutcome::Executed { .. } => "Command executed.".to_string(),
         RuntimeOutcome::Planned { directive } => format_planned_directive(directive),
         RuntimeOutcome::AccountScheduled { result } => format!(
-            "Scheduled {:?} for `{}` in {}ms.",
-            result.action, result.account, result.delay_ms
+            "Scheduled {} for `{}` in {}ms.",
+            scheduled_action_label(&result.action),
+            result.account,
+            result.delay_ms
         ),
         RuntimeOutcome::BlacklistApplied { account, result } => {
             if matches!(result.request, saf_core::BlacklistRequest::List) {
@@ -155,7 +161,10 @@ pub(in crate::live_runtime::discord_gateway) fn format_runtime_outcome(
             }
         }
         RuntimeOutcome::FlipProcessed { account, outcome } => {
-            format!("Processed flip for `{account}`.\n{outcome:?}")
+            format!(
+                "Processed flip for `{account}`.\n{}",
+                format_flip_outcome(outcome)
+            )
         }
     };
     truncate_discord(&content)
@@ -205,4 +214,159 @@ fn format_queue_snapshot(account: &AccountId, queue: &[QueueEntry]) -> String {
         )
     }));
     lines.join("\n")
+}
+
+pub(in crate::live_runtime::discord_gateway) fn scheduled_action_label(
+    action: &ScheduledAccountAction,
+) -> &'static str {
+    match action {
+        ScheduledAccountAction::Start => "start",
+        ScheduledAccountAction::Stop => "stop",
+    }
+}
+
+fn format_flip_outcome(outcome: &FlipOutcome) -> String {
+    match outcome {
+        FlipOutcome::IgnoredInvalid { item_name, reason } => {
+            format!("Ignored {item_name}: invalid ({reason}).")
+        }
+        FlipOutcome::IgnoredBlocked { item_name, reason } => {
+            format!("Ignored {item_name}: blocked ({reason}).")
+        }
+        FlipOutcome::IgnoredSkipped {
+            item_name,
+            starting_bid,
+            ..
+        } => format!("Skipped {item_name} at {}.", format_coins(*starting_bid)),
+        FlipOutcome::OpenedAuction {
+            item_name,
+            starting_bid,
+            ..
+        } => format!(
+            "Opened auction for {item_name} at {}.",
+            format_coins(*starting_bid)
+        ),
+    }
+}
+
+/// Pick the card colour/icon for an outcome and reuse the prose render as the
+/// description so the embed mirrors the text exactly. Account-scoped cards get
+/// the account player head as the thumbnail.
+pub(in crate::live_runtime::discord_gateway) fn outcome_embed(
+    outcome: &RuntimeOutcome,
+) -> CreateEmbed {
+    let description = format_runtime_outcome(outcome);
+    let (kind, title, account) = outcome_card_meta(outcome);
+    let mut card = EmbedCard::for_kind(kind, title, description);
+    if let Some(account) = account {
+        card = card.thumbnail(crate::player_head::account_head_thumbnail_url(
+            account.as_str(),
+        ));
+    }
+    card.build()
+}
+
+fn outcome_card_meta(
+    outcome: &RuntimeOutcome,
+) -> (NotificationKind, &'static str, Option<&AccountId>) {
+    match outcome {
+        RuntimeOutcome::UsersSnapshot { .. } => (NotificationKind::Info, "Users", None),
+        RuntimeOutcome::GlobalStatsSnapshot { .. } => {
+            (NotificationKind::Info, "Global Stats", None)
+        }
+        RuntimeOutcome::StatsSnapshot { account, .. } => {
+            (NotificationKind::Info, "Stats", Some(account))
+        }
+        RuntimeOutcome::ProfitSnapshot { account, .. } => {
+            (NotificationKind::Info, "Profit", Some(account))
+        }
+        RuntimeOutcome::PingSnapshot { account, .. } => {
+            (NotificationKind::Info, "Ping", Some(account))
+        }
+        RuntimeOutcome::QueueSnapshot { account, .. } => {
+            (NotificationKind::Info, "Queue", Some(account))
+        }
+        RuntimeOutcome::ConnectionsSnapshot { .. } => (NotificationKind::Info, "Connections", None),
+        RuntimeOutcome::LogSnapshot { .. } => (NotificationKind::Info, "Logs", None),
+        RuntimeOutcome::InventorySnapshot { snapshot } => {
+            (NotificationKind::Info, "Inventory", Some(&snapshot.account))
+        }
+        RuntimeOutcome::InventoryListingsQueued { account, .. } => {
+            (NotificationKind::Listed, "Listings queued", Some(account))
+        }
+        RuntimeOutcome::DelistAllQueued { account, .. } => {
+            (NotificationKind::Started, "Delist queued", Some(account))
+        }
+        RuntimeOutcome::GuiSlotDiagnostics { diagnostics } => (
+            NotificationKind::Info,
+            "GUI Slots",
+            Some(&diagnostics.account),
+        ),
+        RuntimeOutcome::QueueCleared { account, .. } => {
+            (NotificationKind::Started, "Queue cleared", Some(account))
+        }
+        RuntimeOutcome::QueuesCleared { .. } => (NotificationKind::Started, "Queues cleared", None),
+        RuntimeOutcome::SavedDataCleared { account, .. } => (
+            NotificationKind::Started,
+            "Saved data cleared",
+            Some(account),
+        ),
+        RuntimeOutcome::Queued { .. } => (NotificationKind::Started, "Queued", None),
+        RuntimeOutcome::Executed { .. } => (NotificationKind::Started, "Executed", None),
+        RuntimeOutcome::Planned { .. } => (NotificationKind::Info, "Planned", None),
+        RuntimeOutcome::AccountScheduled { result } => {
+            let kind = match &result.action {
+                ScheduledAccountAction::Start => NotificationKind::Started,
+                ScheduledAccountAction::Stop => NotificationKind::Stopped,
+            };
+            (kind, "Scheduled", Some(&result.account))
+        }
+        RuntimeOutcome::BlacklistApplied { account, .. } => {
+            (NotificationKind::Info, "Blacklist", Some(account))
+        }
+        RuntimeOutcome::FlipProcessed { account, .. } => {
+            (NotificationKind::FlipFound, "Flip processed", Some(account))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use saf_core::ports::AccountScheduleResult;
+
+    #[test]
+    fn account_scheduled_renders_human_readable_text() {
+        let outcome = RuntimeOutcome::AccountScheduled {
+            result: AccountScheduleResult {
+                account: AccountId::new("Main").unwrap(),
+                action: ScheduledAccountAction::Stop,
+                delay_ms: 250,
+            },
+        };
+
+        let rendered = format_runtime_outcome(&outcome);
+
+        assert!(rendered.contains("Scheduled stop for `Main` in 250ms."));
+        assert!(!rendered.contains("Stop"));
+        assert!(!rendered.contains('{'));
+    }
+
+    #[test]
+    fn flip_processed_renders_human_readable_text() {
+        let outcome = RuntimeOutcome::FlipProcessed {
+            account: AccountId::new("Main").unwrap(),
+            outcome: FlipOutcome::IgnoredBlocked {
+                item_name: "Hyperion".to_string(),
+                reason: "do-not-buy".to_string(),
+            },
+        };
+
+        let rendered = format_runtime_outcome(&outcome);
+
+        assert!(rendered.contains("Processed flip for `Main`."));
+        assert!(rendered.contains("Ignored Hyperion: blocked (do-not-buy)."));
+        assert!(!rendered.contains("IgnoredBlocked"));
+        assert!(!rendered.contains("item_name"));
+    }
 }

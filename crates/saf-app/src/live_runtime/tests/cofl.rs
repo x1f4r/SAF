@@ -47,6 +47,18 @@ fn mark_runtime_cofl_settings_loaded(runtime: &LiveRuntime) {
     }
 }
 
+/// Collapse the human reaction gate to zero for every pending live buy so the
+/// buy *mechanics* tests can fire the first click synchronously. The gate
+/// itself is exercised separately by
+/// `live_cofl_first_click_waits_for_human_reaction`.
+#[cfg(feature = "live-cofl")]
+fn release_live_buy_reaction_gate(runtime: &LiveRuntime) {
+    let mut pending = runtime.pending_live_buys.lock().unwrap();
+    for buy in pending.values_mut() {
+        buy.buy_reaction_delay = Duration::ZERO;
+    }
+}
+
 #[tokio::test]
 async fn unmatched_purchase_chat_does_not_increment_bought_stats() {
     let config = SafConfig {
@@ -1174,6 +1186,7 @@ async fn live_cofl_flip_skip_policy_opens_auction_and_tracks_pending_buy() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     assert_eq!(
         minecraft.actions(),
@@ -1246,6 +1259,7 @@ async fn live_cofl_flip_clicks_buy_action_after_window_opens() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     assert_eq!(
         minecraft.actions(),
@@ -1308,6 +1322,108 @@ async fn live_cofl_flip_clicks_buy_action_after_window_opens() {
 
 #[cfg(feature = "live-cofl")]
 #[tokio::test]
+async fn live_cofl_first_click_waits_for_human_reaction() {
+    let account = AccountId::new("Main").unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let config = SafConfig {
+        igns: vec!["Main".to_string()],
+        default_ign: "Main".to_string(),
+        session: "session".to_string(),
+        ..SafConfig::default()
+    };
+    let mut options = RunLiveOptions::new(temp.path().join("commands.jsonl"), temp.path());
+    options.market_actions = MarketActionMode::Live;
+    let mut runtime = LiveRuntime::start(config, options).await.unwrap();
+    mark_runtime_cofl_settings_loaded(&runtime);
+    let minecraft = Arc::new(RecordedMinecraftClient::new(account.clone()));
+    runtime
+        .managed_minecraft
+        .get(&account)
+        .unwrap()
+        .replace_minecraft_for_test(minecraft.clone())
+        .await;
+    let envelope = saf_cofl::CoflEnvelope {
+        kind: "flip".to_string(),
+        data: json!({
+            "id": "auction-1",
+            "itemName": "Hyperion",
+            "startingBid": 30_000_000,
+            "target": 50_000_000,
+            "finder": "SNIPER_MEDIAN"
+        }),
+    };
+    {
+        let stream = runtime.cofl_streams.first().unwrap();
+        assert!(
+            stream
+                .handle_envelope_best_effort(&runtime.session, &runtime.stats, true, envelope)
+                .await
+        );
+    }
+    // Force a clearly observable reaction window so the gate is deterministic.
+    runtime
+        .pending_live_buys
+        .lock()
+        .unwrap()
+        .get_mut(&account)
+        .unwrap()
+        .buy_reaction_delay = Duration::from_millis(150);
+    assert!(runtime.pending_live_buy(&account).unwrap().is_some());
+
+    // The auction window opens.
+    minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
+        title: "BIN Auction View".to_string(),
+        slots: live_buy_window_slots("gold_nugget", "Buy Item"),
+    }));
+    runtime.poll_minecraft_once().await.unwrap();
+
+    // First pass stamps window_seen_at but the reaction has not elapsed, so the
+    // first click must NOT fire yet — only the OpenAuction issued earlier.
+    runtime.process_pending_live_buys_once().await.unwrap();
+    assert_eq!(
+        minecraft.actions(),
+        vec![MinecraftAction::OpenAuction(
+            saf_core::AuctionId::new("auction-1").unwrap()
+        )],
+        "first click fired before the human reaction window elapsed"
+    );
+    let pending = runtime.pending_live_buy(&account).unwrap().unwrap();
+    assert!(
+        pending.window_seen_at.is_some(),
+        "window_seen_at should be stamped once the window is observed"
+    );
+    assert_eq!(pending.action_clicks, 0);
+
+    // Backdate window_seen_at past the reaction window: the gate now releases.
+    runtime
+        .pending_live_buys
+        .lock()
+        .unwrap()
+        .get_mut(&account)
+        .unwrap()
+        .window_seen_at = Some(Instant::now() - Duration::from_millis(200));
+    runtime.process_pending_live_buys_once().await.unwrap();
+    assert_eq!(
+        minecraft.actions(),
+        vec![
+            MinecraftAction::OpenAuction(saf_core::AuctionId::new("auction-1").unwrap()),
+            MinecraftAction::ClickSlot(31)
+        ],
+        "first click should fire once the reaction window has elapsed"
+    );
+    assert_eq!(
+        runtime
+            .pending_live_buy(&account)
+            .unwrap()
+            .unwrap()
+            .action_clicks,
+        1
+    );
+    runtime.shutdown().await;
+}
+
+#[cfg(feature = "live-cofl")]
+#[tokio::test]
 async fn live_cofl_buy_accepts_price_on_buy_action_lore() {
     let account = AccountId::new("Main").unwrap();
     let temp = tempfile::tempdir().unwrap();
@@ -1347,6 +1463,7 @@ async fn live_cofl_buy_accepts_price_on_buy_action_lore() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1413,6 +1530,7 @@ async fn live_cofl_buy_waits_for_visible_price_before_clicking() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1504,6 +1622,7 @@ async fn live_cofl_buy_blocks_missing_visible_price_after_wait() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1574,6 +1693,7 @@ async fn live_cofl_buy_accepts_price_on_gold_block_action_lore() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1640,6 +1760,7 @@ async fn live_cofl_buy_blocks_action_lore_price_above_expected_bid() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1707,6 +1828,7 @@ async fn live_cofl_buy_blocks_visible_price_above_expected_bid() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1776,6 +1898,7 @@ async fn live_cofl_buy_closes_unrelated_window_before_clicking() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "Create BIN Auction".to_string(),
@@ -1875,6 +1998,7 @@ async fn live_cofl_buy_retries_confirm_purchase_until_window_closes() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -1968,6 +2092,7 @@ async fn live_cofl_timed_bed_waits_for_purchase_time_before_clicking() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),
@@ -2097,6 +2222,7 @@ async fn live_cofl_bed_spam_clicks_future_beds_immediately_until_timeout() {
                 .await
         );
     }
+    release_live_buy_reaction_gate(&runtime);
 
     minecraft.push_event(MinecraftEvent::WindowOpen(WindowSnapshot {
         title: "BIN Auction View".to_string(),

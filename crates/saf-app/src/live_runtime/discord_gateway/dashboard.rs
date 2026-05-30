@@ -1,9 +1,9 @@
 use super::controls::{account_action_controls, discord_button};
-use super::rendering::{format_auction_slots, list_or_none};
+use super::rendering::{EmbedCard, format_auction_slots, list_or_none};
 use super::replies::DiscordInteractionReply;
 use super::{account_selection_error, resolve_discord_account};
 use crate::live_runtime::formatting::format_coins;
-use saf_core::ports::AccountStats;
+use saf_core::ports::{AccountStats, NotificationKind};
 use saf_core::{AccountId, RuntimeOutcome, RuntimeSession};
 
 pub(super) fn help_reply() -> DiscordInteractionReply {
@@ -12,8 +12,10 @@ pub(super) fn help_reply() -> DiscordInteractionReply {
         .map(|command| format!("/{}", command.name))
         .collect::<Vec<_>>()
         .join(", ");
-    DiscordInteractionReply::with_components(
-        format!("SAF commands\n{names}"),
+    let content = format!("SAF commands\n{names}");
+    DiscordInteractionReply::embed_with_components(
+        content,
+        EmbedCard::for_kind(NotificationKind::Info, "SAF commands", names).build(),
         vec![serenity::builder::CreateActionRow::Buttons(vec![
             discord_button(
                 "saf:dashboard",
@@ -133,7 +135,16 @@ pub(super) async fn dashboard_reply(
         ])
     }));
 
-    DiscordInteractionReply::with_components(lines.join("\n"), rows)
+    let content = lines.join("\n");
+    let description = content
+        .split_once('\n')
+        .map(|(_, rest)| rest.to_string())
+        .unwrap_or_default();
+    DiscordInteractionReply::embed_with_components(
+        content,
+        EmbedCard::for_kind(NotificationKind::Info, title, description).build(),
+        rows,
+    )
 }
 
 pub(super) async fn account_panel_reply(
@@ -147,10 +158,59 @@ pub(super) async fn account_panel_reply(
         return DiscordInteractionReply::content(account_selection_error(session, Some(username)));
     };
     let metrics = discord_account_metrics(session, &account_id).await;
-    DiscordInteractionReply::with_components(
-        format_account_panel_content(&metrics),
+    let content = format_account_panel_content(&metrics);
+    DiscordInteractionReply::embed_with_components(
+        content,
+        account_panel_embed(&metrics),
         account_action_controls(&account_id),
     )
+}
+
+fn account_panel_embed(metrics: &DiscordAccountMetrics) -> serenity::builder::CreateEmbed {
+    let mut card = EmbedCard::for_kind(
+        NotificationKind::Info,
+        format!("Account {}", metrics.account),
+        "Running: yes",
+    )
+    .thumbnail(crate::player_head::account_head_thumbnail_url(
+        metrics.account.as_str(),
+    ))
+    .field(
+        "Queue",
+        metrics
+            .queue_size
+            .map(|count| count.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        true,
+    );
+    if let Some(stats) = &metrics.stats {
+        card = card
+            .field("Profit", format_coins(stats.total_profit), true)
+            .field(
+                "Bought/Sold",
+                format!("{}/{}", stats.bought, stats.sold),
+                true,
+            )
+            .field("Auctions", format_auction_slots(Some(stats)), true)
+            .field(
+                "Purse",
+                stats
+                    .purse
+                    .map(format_coins)
+                    .unwrap_or_else(|| "unknown".to_string()),
+                true,
+            );
+    }
+    card = card.field(
+        "Cofl",
+        metrics
+            .connection_id
+            .as_ref()
+            .and_then(|connection| connection.as_deref())
+            .unwrap_or("pending"),
+        true,
+    );
+    card.build()
 }
 
 #[derive(Clone, Debug)]
