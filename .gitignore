@@ -15,3 +15,5 @@ VPS_SETUP.local.md
 .DS_Store
 mod_audit_modrinth.json
 skyblock_merge_report.json
+SAFDashboard/.build
+.build

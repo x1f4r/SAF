@@ -12,6 +12,8 @@ mod bank;
 mod chat_events;
 #[cfg(feature = "live-cofl")]
 mod cofl;
+#[cfg(feature = "api")]
+mod dashboard;
 mod deferred_queue;
 #[cfg(feature = "live-discord")]
 mod discord_gateway;
@@ -265,6 +267,8 @@ pub struct LiveRuntime {
     discord_restart_at: Option<Instant>,
     #[cfg(feature = "live-discord")]
     discord_restart_delay: Duration,
+    #[cfg(feature = "api")]
+    api_task: Option<tokio::task::JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
     /// Operator "panic stop". When set, the poll loop performs no account or
     /// market work and background tasks (auto-rotate, scheduler) refuse to bring

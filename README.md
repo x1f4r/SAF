@@ -27,6 +27,21 @@ this repo.
 - Runs supervised through a tmux session and optional systemd service.
 - Provides offline unit tests and opt-in live smoke probes for external systems.
 
+## Desktop Dashboard (macOS)
+
+`SAFDashboard/` is a native macOS app for monitoring and controlling a running
+bot: live profit/flip analytics with official item icons, per-account stats, the
+action queue, a live log console, and the full command surface. It connects to an
+API embedded in the `saf` runtime (feature `api`) over an auto-managed SSH tunnel
+— nothing is exposed to the public internet.
+
+```bash
+scripts/setup-dashboard-api.sh <ssh-destination>   # enable the API on the host
+scripts/build-macos-app.sh --install --run         # build + install the app
+```
+
+See [docs/DASHBOARD.md](docs/DASHBOARD.md) for setup, security, and switching hosts.
+
 ## Workspace
 
 - `crates/saf-core`: config, typed IDs, command routing, auction math, blocklist

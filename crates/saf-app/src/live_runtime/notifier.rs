@@ -61,6 +61,21 @@ pub(super) fn default_notifier(config: &SafConfig) -> Arc<dyn Notifier> {
     Arc::new(CompositeNotifier { notifiers })
 }
 
+/// Like [`default_notifier`] but also mirrors every notification into the
+/// dashboard live event stream.
+#[cfg(feature = "api")]
+pub(super) fn notifier_with_event_broadcast(
+    config: &SafConfig,
+    events_tx: tokio::sync::broadcast::Sender<super::dashboard::LiveEvent>,
+) -> Arc<dyn Notifier> {
+    let mut notifiers: Vec<Arc<dyn Notifier>> = vec![Arc::new(StdoutNotifier)];
+    add_webhook_notifier(&mut notifiers, config);
+    notifiers.push(Arc::new(super::dashboard::BroadcastNotifier::new(
+        events_tx,
+    )));
+    Arc::new(CompositeNotifier { notifiers })
+}
+
 #[cfg(feature = "live-cofl")]
 pub(super) fn all_flip_notification(account: &AccountId, flip: &FlipEvent) -> Notification {
     let auction_id = flip

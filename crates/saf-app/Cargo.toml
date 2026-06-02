@@ -11,7 +11,8 @@ discord-webhook = ["saf-discord/webhook-notifier"]
 live-cofl = ["saf-cofl/http-client", "saf-cofl/ws-client"]
 live-discord = ["dep:serenity", "saf-discord/serenity-controller"]
 live-minecraft = ["saf-minecraft/azalea-native"]
-production-runtime = ["discord-webhook", "live-cofl", "live-discord", "live-minecraft"]
+api = ["dep:axum"]
+production-runtime = ["discord-webhook", "live-cofl", "live-discord", "live-minecraft", "api"]
 
 [[bin]]
 name = "saf"
@@ -41,6 +42,14 @@ uuid.workspace = true
 version = "0.12"
 default-features = false
 features = ["cache", "client", "gateway", "http", "model", "rustls_backend"]
+optional = true
+
+# Embedded loopback dashboard API (REST + WebSocket). Reached only through an
+# SSH tunnel; never bound to a public interface.
+[dependencies.axum]
+version = "0.8"
+default-features = false
+features = ["ws", "json", "http1", "tokio", "query"]
 optional = true
 
 [dev-dependencies]

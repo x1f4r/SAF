@@ -93,7 +93,19 @@ impl LiveRuntime {
             options.config_path.clone(),
             session.blacklist_handle(),
         )));
-        let stats = Arc::new(LiveStatsProvider::new(accounts.clone()));
+        // Dashboard event hub (loopback API). Constructed only when the API is
+        // enabled at runtime; otherwise the runtime behaves exactly as before.
+        #[cfg(feature = "api")]
+        let dashboard_hub = super::dashboard::DashboardHub::maybe(&options.state_base_dir);
+        let stats = {
+            #[cfg_attr(not(feature = "api"), allow(unused_mut))]
+            let mut provider = LiveStatsProvider::new(accounts.clone());
+            #[cfg(feature = "api")]
+            if let Some(hub) = &dashboard_hub {
+                provider.set_dashboard_sink(hub.clone());
+            }
+            Arc::new(provider)
+        };
         stats
             .apply_auction_slot_max_overrides(|key| std::env::var(key).ok())
             .context("applying configured auction slot capacity overrides")?;
@@ -104,6 +116,19 @@ impl LiveRuntime {
         session.set_log_reader(Arc::new(FileLogReader::new(
             options.state_base_dir.join("logs/latest.log"),
         )));
+        #[cfg(feature = "api")]
+        match &dashboard_hub {
+            Some(hub) => {
+                session.set_notifier(super::notifier::notifier_with_event_broadcast(
+                    &config,
+                    hub.events_tx(),
+                ));
+            }
+            None => {
+                session.set_notifier(default_notifier(&config));
+            }
+        }
+        #[cfg(not(feature = "api"))]
         session.set_notifier(default_notifier(&config));
 
         let managed_minecraft = add_minecraft_clients(
@@ -282,6 +307,35 @@ impl LiveRuntime {
         #[cfg(not(feature = "live-discord"))]
         let discord_started = false;
 
+        // Spawn the loopback dashboard API once the shared session is live.
+        #[cfg(feature = "api")]
+        let api_task = match (&dashboard_hub, options.once) {
+            (Some(hub), false) => {
+                super::dashboard::maybe_spawn_server(super::dashboard::ApiContext {
+                    session: session.clone(),
+                    stats: stats.clone(),
+                    hub: hub.clone(),
+                    halted: halted.clone(),
+                    accounts: accounts.clone(),
+                    config: config.clone(),
+                    state_base_dir: options.state_base_dir.clone(),
+                    command_inbox: options.command_inbox.clone(),
+                    pause_file: std::env::var("SAF_PAUSE_FILE")
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|_| options.state_base_dir.join(".saf-paused")),
+                    log_path: options.state_base_dir.join("logs/latest.log"),
+                    started_at_ms: super::now_ms(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    market_mode: match options.market_actions {
+                        super::MarketActionMode::Live => "live",
+                        _ => "dry-run",
+                    }
+                    .to_string(),
+                })
+            }
+            _ => None,
+        };
+
         let inbox = if options.once {
             CommandInboxCursor::new(options.command_inbox.clone())
         } else {
@@ -337,6 +391,8 @@ impl LiveRuntime {
             discord_restart_at: None,
             #[cfg(feature = "live-discord")]
             discord_restart_delay,
+            #[cfg(feature = "api")]
+            api_task,
             shutdown,
             halted,
             cofl_connections,
@@ -482,6 +538,10 @@ impl LiveRuntime {
     pub(super) async fn shutdown_runtime(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.halted.store(true, Ordering::SeqCst);
+        #[cfg(feature = "api")]
+        if let Some(task) = &self.api_task {
+            task.abort();
+        }
         #[cfg(feature = "live-discord")]
         if let Some(task) = &self.discord_task {
             task.abort();

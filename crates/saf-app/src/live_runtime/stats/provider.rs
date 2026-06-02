@@ -35,6 +35,8 @@ pub(in crate::live_runtime) struct LiveStatsProvider {
     pub(super) auction_collections:
         Arc<Mutex<BTreeMap<AccountId, VecDeque<PendingAuctionCollection>>>>,
     pub(super) pending_zero_claims: Arc<Mutex<BTreeMap<AccountId, VecDeque<PendingZeroClaim>>>>,
+    #[cfg(feature = "api")]
+    pub(super) dashboard_sink: Option<Arc<dyn crate::live_runtime::dashboard::DashboardEventSink>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -72,7 +74,19 @@ impl LiveStatsProvider {
             connection_ids: Arc::new(Mutex::new(BTreeMap::new())),
             auction_collections: Arc::new(Mutex::new(BTreeMap::new())),
             pending_zero_claims: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(feature = "api")]
+            dashboard_sink: None,
         }
+    }
+
+    /// Attach the dashboard event sink so parsed buys/sells/claims are mirrored
+    /// to the live API stream and persistent ledger.
+    #[cfg(feature = "api")]
+    pub(in crate::live_runtime) fn set_dashboard_sink(
+        &mut self,
+        sink: Arc<dyn crate::live_runtime::dashboard::DashboardEventSink>,
+    ) {
+        self.dashboard_sink = Some(sink);
     }
 
     pub(in crate::live_runtime) fn record_window_snapshot(

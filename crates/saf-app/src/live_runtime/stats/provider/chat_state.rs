@@ -103,6 +103,23 @@ impl LiveStatsProvider {
                 )?;
             }
         }
+        #[cfg(feature = "api")]
+        if let Some(sink) = &self.dashboard_sink {
+            use crate::live_runtime::dashboard::{ClaimRecord, FlipRecord, LiveEvent, SaleRecord};
+            if let Some(purchase) = &update.purchase {
+                sink.emit(LiveEvent::Purchase(FlipRecord::from_update(
+                    account, purchase, now,
+                )));
+            }
+            if let Some(sold) = &update.sold {
+                sink.emit(LiveEvent::Sold(SaleRecord::from_update(account, sold, now)));
+            }
+            if let Some(claim) = &update.claim {
+                sink.emit(LiveEvent::Claim(ClaimRecord::from_update(
+                    account, claim, now,
+                )));
+            }
+        }
         Ok(update)
     }
 
