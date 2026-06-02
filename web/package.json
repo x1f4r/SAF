@@ -1,0 +1,29 @@
+{
+  "name": "saf-web-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted web dashboard for the SAF auction-flipping bot.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "start": "node server/index.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/nunito": "^5.1.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

@@ -17,3 +17,5 @@ mod_audit_modrinth.json
 skyblock_merge_report.json
 SAFDashboard/.build
 .build
+web/node_modules
+web/dist

@@ -1,0 +1,192 @@
+/* Design tokens ported 1:1 from the macOS app's Theme.swift. */
+:root {
+  --accent: #5ec8ff;
+  --accent2: #8b7bff;
+  --profit: #37e0a6;
+  --loss: #ff6b6b;
+  --gold: #ffc861;
+  --warn: #ffb23e;
+
+  --bg-top: #0b0e14;
+  --bg-bottom: #06070b;
+
+  --card: rgba(255, 255, 255, 0.022);
+  --card-strong: rgba(255, 255, 255, 0.05);
+  --stroke: rgba(255, 255, 255, 0.06);
+  --stroke-soft: rgba(255, 255, 255, 0.045);
+  --sidebar: rgba(0, 0, 0, 0.18);
+
+  --text-1: rgba(255, 255, 255, 0.96);
+  --text-2: rgba(255, 255, 255, 0.62);
+  --text-3: rgba(255, 255, 255, 0.4);
+
+  --radius: 20px;
+  --radius-sm: 12px;
+
+  --brand-grad: linear-gradient(110deg, var(--accent), var(--accent2));
+  --brand-grad-h: linear-gradient(90deg, var(--accent), var(--accent2));
+  --font: "Nunito Variable", ui-rounded, "SF Pro Rounded", system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font);
+  color: var(--text-1);
+  background: var(--bg-bottom);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+/* App background: vertical gradient + two soft accent glows. */
+.app-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(680px 680px at 0% 0%, rgba(94, 200, 255, 0.1), transparent 70%),
+    radial-gradient(760px 760px at 100% 100%, rgba(139, 123, 255, 0.1), transparent 70%),
+    linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+button { font-family: inherit; cursor: pointer; }
+input { font-family: inherit; }
+a { color: var(--accent); }
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.18); background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.12) transparent; }
+
+/* ----- Layout primitives ----- */
+.hairline { height: 1px; background: var(--stroke); border: 0; }
+.vrule { width: 1px; background: var(--stroke); align-self: center; }
+
+.surface {
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius);
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.section-label .sl-icon { color: var(--accent); display: inline-flex; }
+.section-label .sl-spacer { flex: 1; }
+.section-label .sl-trailing { text-transform: none; letter-spacing: 0; }
+
+/* Metric (flat KPI) */
+.metric { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.metric.hero { gap: 8px; }
+.metric .m-label { font-size: 10px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-3); }
+.metric.hero .m-label { font-size: 11px; }
+.metric .m-value { font-size: 22px; font-weight: 800; color: var(--text-1); line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric.hero .m-value { font-size: 33px; }
+.metric .m-sub { font-size: 11px; font-weight: 600; color: var(--text-3); }
+
+/* Pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3.5px 9px;
+  border-radius: 999px;
+}
+
+/* Status dot */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.pulse { animation: dotpulse 1.1s ease-in-out infinite; }
+@keyframes dotpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  border: 0;
+  border-radius: 999px;
+  white-space: nowrap;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, background 0.12s ease, color 0.12s ease;
+}
+.btn-primary {
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.88);
+  padding: 9px 15px;
+  background: var(--brand-grad-h);
+  box-shadow: 0 3px 10px rgba(94, 200, 255, 0.22);
+}
+.btn-primary:hover { transform: scale(1.03); box-shadow: 0 4px 16px rgba(94, 200, 255, 0.4); }
+.btn-primary:disabled { opacity: 0.5; transform: none; box-shadow: none; cursor: default; }
+.btn-ghost {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 8px 13px;
+  background: transparent;
+  border: 1px solid var(--stroke);
+}
+.btn-ghost:hover { color: var(--text-1); background: rgba(255, 255, 255, 0.07); }
+.btn-ghost.danger { color: var(--loss); }
+.btn-ghost.danger:hover { color: var(--loss); background: rgba(255, 107, 107, 0.1); }
+
+/* Action chip */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--stroke);
+  transition: all 0.12s ease;
+}
+.chip:hover { background: rgba(94, 200, 255, 0.14); color: var(--accent); border-color: rgba(94, 200, 255, 0.4); }
+.chip.danger:hover { background: rgba(255, 107, 107, 0.14); color: var(--loss); border-color: rgba(255, 107, 107, 0.4); }
+.chip.warn:hover { background: rgba(255, 178, 62, 0.14); color: var(--warn); border-color: rgba(255, 178, 62, 0.4); }
+.chip.good:hover { background: rgba(55, 224, 166, 0.14); color: var(--profit); border-color: rgba(55, 224, 166, 0.4); }
+
+/* Flat list row */
+.list-row { padding: 9px 4px; border-radius: 9px; transition: background 0.12s ease; }
+.list-row:hover { background: rgba(255, 255, 255, 0.045); }
+
+/* Inputs */
+.field {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  color: var(--text-1);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 10px 12px;
+  outline: none;
+}
+.field:focus { border-color: rgba(94, 200, 255, 0.5); }
+.field::placeholder { color: var(--text-3); }
+
+/* Misc */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: var(--text-3); text-align: center; font-size: 12px; font-weight: 600;
+}
+.mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+.flow { display: flex; flex-wrap: wrap; gap: 8px; }

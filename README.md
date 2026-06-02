@@ -42,6 +42,19 @@ scripts/build-macos-app.sh --install --run         # build + install the app
 
 See [docs/DASHBOARD.md](docs/DASHBOARD.md) for setup, security, and switching hosts.
 
+### Web dashboard (self-hosted, any OS)
+
+`web/` is a browser-based build with the same UI and capabilities, for Windows
+and Linux (and macOS) via Docker. A small gateway serves the SPA and proxies to
+the bot's API, keeping the token server-side. Tested in Chromium and Firefox.
+
+```bash
+cd web && cp .env.example .env   # set BOT_API_TOKEN + DASHBOARD_PASSWORD
+docker compose up -d --build     # open http://localhost:8090
+```
+
+See [web/README.md](web/README.md).
+
 ## Workspace
 
 - `crates/saf-core`: config, typed IDs, command routing, auction math, blocklist
