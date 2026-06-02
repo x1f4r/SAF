@@ -146,9 +146,24 @@ struct SidebarRow: View {
             .shadow(color: selected ? Theme.accent.opacity(0.35) : .clear, radius: 8, y: 2)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+        // ⌘1–⌘9 only; a 10th+ tab gets no shortcut (Character requires a single
+        // grapheme, so "\(10)" would trap).
+        .modifier(TabShortcut(number: index + 1))
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.15), value: hover)
+    }
+}
+
+/// Binds ⌘<n> for single-digit positions only. Two-digit numbers can't form a
+/// `KeyEquivalent` (a single grapheme), so those tabs simply get no shortcut.
+private struct TabShortcut: ViewModifier {
+    let number: Int
+    func body(content: Content) -> some View {
+        if number >= 1, number <= 9, let ch = "\(number)".first {
+            content.keyboardShortcut(KeyEquivalent(ch), modifiers: .command)
+        } else {
+            content
+        }
     }
 }
 
