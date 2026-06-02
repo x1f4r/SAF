@@ -77,7 +77,7 @@ struct DashboardView: View {
     private var subtitleText: Text {
         let mode = store.status?.marketMode ?? "—"
         let live = store.status?.marketMode == "live"
-        return Text("\(store.runningCount)/\(store.configuredCount) accounts running   ·   market ")
+        return Text("\(store.connectedCount)/\(store.configuredCount) accounts online   ·   market ")
             + Text(mode).foregroundColor(live ? Theme.warn : Theme.profit).fontWeight(.semibold)
     }
 
@@ -99,9 +99,9 @@ struct DashboardView: View {
             VRule(height: 52)
             Metric(label: "Purse", value: Fmt.coins(profit?.purse ?? 0), sub: "liquid", color: Theme.gold)
             VRule(height: 52)
-            Metric(label: "Accounts", value: "\(store.runningCount)/\(store.configuredCount)",
-                sub: store.isHalted ? "halted" : "active",
-                subColor: store.isHalted ? Theme.warn : Theme.profit)
+            Metric(label: "Ready", value: "\(store.readyCount)/\(store.configuredCount)",
+                sub: store.readyCount > 0 ? "ready to flip" : "none ready",
+                subColor: store.readyCount > 0 ? Theme.profit : Theme.warn)
         }
     }
 
@@ -174,14 +174,20 @@ struct DashboardView: View {
                     Button("Manage") { store.tab = .accounts }
                         .buttonStyle(.plain).font(.rounded(12, .semibold)).foregroundStyle(Theme.accent)
                 }
-                if let accounts = store.accounts?.accounts, !accounts.isEmpty {
+                let connected = (store.accounts?.accounts ?? []).filter { !$0.isOffline }
+                let notConnected = (store.accounts?.accounts.count ?? 0) - connected.count
+                if !connected.isEmpty {
                     VStack(spacing: 0) {
-                        ForEach(Array(accounts.prefix(5).enumerated()), id: \.element.id) { idx, account in
-                            ListRow(showsSeparator: idx < min(4, accounts.count - 1)) { AccountRowContent(account: account) }
+                        ForEach(Array(connected.prefix(5).enumerated()), id: \.element.id) { idx, account in
+                            ListRow(showsSeparator: idx < min(4, connected.count - 1)) { AccountRowContent(account: account) }
                         }
                     }
                 } else {
-                    EmptyState(icon: "person.crop.circle", text: "No accounts.").frame(height: 90)
+                    EmptyState(icon: "person.crop.circle", text: notConnected > 0 ? "No accounts connected." : "No accounts.").frame(height: 90)
+                }
+                if notConnected > 0 {
+                    Button("\(notConnected) not connected") { store.tab = .accounts }
+                        .buttonStyle(.plain).font(.rounded(11.5, .medium)).foregroundStyle(Theme.textTertiary)
                 }
             }
         }
@@ -316,10 +322,14 @@ struct AccountRowContent: View {
             AccountAvatar(url: account.headUrl, size: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(account.ign).font(.rounded(12.5, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
-                Text("\(account.stats.bought) bought · \(account.stats.sold) sold").font(.rounded(10.5, .medium)).foregroundStyle(Theme.textTertiary)
+                Text(account.ready == true ? "\(account.stats.bought) bought · \(account.stats.sold) sold" : (account.reason ?? "Not ready"))
+                    .font(.rounded(10.5, .medium))
+                    .foregroundStyle(account.ready == true ? Theme.textTertiary : Theme.warn)
+                    .lineLimit(1)
             }
             Spacer(minLength: 4)
-            StatusDot(color: account.running ? Theme.profit : Theme.textTertiary, pulse: account.running)
+            StatusDot(color: account.ready == true ? Theme.profit : (account.isOffline ? Theme.textTertiary : Theme.warn),
+                pulse: account.ready == true)
         }
     }
 }

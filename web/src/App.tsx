@@ -6,6 +6,7 @@ import { AccountsView } from "./views/AccountsView";
 import { CommandsView } from "./views/CommandsView";
 import { ConnectionView } from "./views/ConnectionView";
 import { DashboardView } from "./views/DashboardView";
+import { DiagnosticsView } from "./views/DiagnosticsView";
 import { FlipsView } from "./views/FlipsView";
 import { LoginView } from "./views/LoginView";
 import { LogsView } from "./views/LogsView";
@@ -20,10 +21,11 @@ const VIEWS: Record<Tab, () => JSX.Element> = {
   queue: QueueView,
   logs: LogsView,
   commands: CommandsView,
+  diagnostics: DiagnosticsView,
   settings: ConnectionView,
 };
 
-const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "settings"];
+const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "diagnostics", "settings"];
 
 export function App() {
   const store = useStore();

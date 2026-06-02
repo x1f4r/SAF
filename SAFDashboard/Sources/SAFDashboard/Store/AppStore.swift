@@ -11,7 +11,7 @@ final class AppStore: ObservableObject {
 
     // Navigation
     enum Tab: String, CaseIterable, Identifiable {
-        case dashboard, accounts, flips, profit, queue, logs, commands, settings
+        case dashboard, accounts, flips, profit, queue, logs, commands, diagnostics, settings
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -22,6 +22,7 @@ final class AppStore: ObservableObject {
             case .queue: return "Queue"
             case .logs: return "Console"
             case .commands: return "Commands"
+            case .diagnostics: return "Diagnostics"
             case .settings: return "Connection"
             }
         }
@@ -34,9 +35,17 @@ final class AppStore: ObservableObject {
             case .queue: return "list.bullet.rectangle.fill"
             case .logs: return "terminal.fill"
             case .commands: return "command"
+            case .diagnostics: return "waveform.path.ecg"
             case .settings: return "antenna.radiowaves.left.and.right"
             }
         }
+    }
+
+    struct DiagEvent: Identifiable, Equatable {
+        let id = UUID()
+        var ts: Date
+        var level: String   // info | warn | error
+        var message: String
     }
 
     @Published var phase: Phase = .onboarding
@@ -55,11 +64,35 @@ final class AppStore: ObservableObject {
     @Published var logLines: [String] = []
     @Published var events: [LiveEvent] = []
     @Published var commands: [CommandDefinition] = []
+    @Published var alerts: [Alert] = []
+    @Published var diag: [DiagEvent] = []
 
     @Published var reachable = false
     @Published var lastError: String?
     @Published var lastRefresh: Date?
     @Published var toast: ToastMessage?
+    private var wasReachable = false
+
+    func logDiag(_ level: String, _ message: String) {
+        diag.insert(DiagEvent(ts: Date(), level: level, message: message), at: 0)
+        if diag.count > 300 { diag.removeLast(diag.count - 300) }
+    }
+
+    var connectedCount: Int {
+        if let c = accounts?.connectedCount { return c }
+        let list: [AccountInfo] = accounts?.accounts ?? []
+        return list.filter { $0.effectiveStatus == "online" }.count
+    }
+    var readyCount: Int {
+        if let c = accounts?.readyCount { return c }
+        let list: [AccountInfo] = accounts?.accounts ?? []
+        return list.filter { $0.ready == true }.count
+    }
+    /// Honest health for the Diagnostics view: connected / degraded / connecting / disconnected.
+    var healthState: String {
+        if !reachable { return phase == .live ? "connecting" : "disconnected" }
+        return stream.connected ? "connected" : "degraded"
+    }
 
     let tunnel = TunnelManager()
     let stream = EventStream()
@@ -100,6 +133,10 @@ final class AppStore: ObservableObject {
             .store(in: &bag)
         webServer.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
+        stream.$connected.dropFirst().removeDuplicates().sink { [weak self] connected in
+            self?.logDiag(connected ? "info" : "warn",
+                connected ? "Live feed connected." : "Live feed dropped — reconnecting.")
+        }.store(in: &bag)
 
         stream.onEvent = { [weak self] event in self?.apply(event) }
     }
@@ -187,6 +224,7 @@ final class AppStore: ObservableObject {
             self.reachable = true
             self.lastError = nil
             self.lastRefresh = Date()
+            if !wasReachable { logDiag("info", "Connected to the bot."); wasReachable = true }
 
             if !startedStream {
                 startedStream = true
@@ -198,12 +236,15 @@ final class AppStore: ObservableObject {
                 if let series = try? await api.profitSeries(bucketSec: 1800) { self.series = series }
                 if let bought = try? await api.boughtFlips(limit: 200) { self.bought = bought }
                 if let sold = try? await api.soldFlips(limit: 200) { self.sold = sold }
+                if let alerts = try? await api.alerts(lines: 120) { self.alerts = alerts }
             }
             if let logs = try? await api.logs(lines: 300) { self.logLines = logs }
             if commands.isEmpty, let commands = try? await api.commands() { self.commands = commands }
         } catch {
             self.reachable = false
-            self.lastError = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            let message = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            self.lastError = message
+            if wasReachable { logDiag("error", "Lost connection to the bot: \(message)"); wasReachable = false }
         }
     }
 

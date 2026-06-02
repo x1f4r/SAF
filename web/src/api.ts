@@ -3,6 +3,7 @@
 // authenticates the browser to the gateway.
 import type {
   AccountsResponse,
+  Alert,
   BotStatus,
   CommandDefinition,
   CommandResult,
@@ -67,6 +68,7 @@ export const api = {
     ).then((r) => r.flips),
   queue: (ign: string) => req<QueueResponse>(`/api/accounts/${encodeURIComponent(ign)}/queue`),
   logs: (lines = 300) => req<{ lines: string[] }>(`/api/logs?lines=${lines}`).then((r) => r.lines),
+  alerts: (lines = 120) => req<{ alerts: Alert[] }>(`/api/alerts?lines=${lines}`).then((r) => r.alerts),
   commands: () => req<{ commands: CommandDefinition[] }>("/api/commands").then((r) => r.commands),
 
   execute: (command: string, options: Record<string, unknown> = {}) =>

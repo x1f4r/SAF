@@ -387,6 +387,7 @@ async fn serve(state: ApiState, port: u16) -> anyhow::Result<()> {
         .route("/v1/profit/{ign}/series", get(profit_series))
         .route("/v1/flips", get(flips))
         .route("/v1/logs", get(logs))
+        .route("/v1/alerts", get(alerts))
         .route("/v1/commands", get(commands_catalog))
         .route("/v1/command", post(execute_command))
         .route("/v1/control/{action}", post(control))
@@ -488,11 +489,44 @@ async fn account_summary(state: &ApiState, ign: &AccountId, running: &[String]) 
     let is_running = running
         .iter()
         .any(|name| name.eq_ignore_ascii_case(ign.as_str()));
+
+    // Honest, derived per-account status so the dashboard reflects reality
+    // (connected? has a booster cookie? enough coins?) rather than showing every
+    // configured account as if it were flipping.
+    let cofl_connected = connection_id.is_some();
+    let now_secs = now_ms() / 1000;
+    let has_cookie = stats
+        .as_ref()
+        .and_then(|s| s.cookie_expires_at)
+        .is_some_and(|expires| expires > now_secs);
+    let purse = stats.as_ref().and_then(|s| s.purse);
+    let min_coins = std::env::var("SAF_MIN_FLIP_COINS")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(1_000_000.0);
+
+    let (status, ready, reason): (&str, bool, Option<&str>) = if !is_running {
+        ("offline", false, Some("Stopped"))
+    } else if !cofl_connected {
+        ("connecting", false, Some("Connecting to SkyCofl"))
+    } else if !has_cookie {
+        ("online", false, Some("No booster cookie"))
+    } else if purse.is_some_and(|p| p < min_coins) {
+        ("online", false, Some("Low coins"))
+    } else {
+        ("online", true, None)
+    };
+
     json!({
         "ign": ign.as_str(),
         "running": is_running,
         "queueSize": queue_size,
         "connectionId": connection_id,
+        "coflConnected": cofl_connected,
+        "hasCookie": has_cookie,
+        "status": status,
+        "ready": ready,
+        "reason": reason,
         "stats": stats,
         "headUrl": crate::player_head::account_head_thumbnail_url(ign.as_str()),
     })
@@ -505,10 +539,20 @@ async fn accounts(State(state): State<ApiState>) -> Json<Value> {
     for ign in state.accounts.iter() {
         list.push(account_summary(&state, ign, &running).await);
     }
+    let ready_count = list
+        .iter()
+        .filter(|a| a["ready"].as_bool() == Some(true))
+        .count();
+    let connected_count = list
+        .iter()
+        .filter(|a| a["status"].as_str() == Some("online"))
+        .count();
     Json(json!({
         "configured": selector.configured,
         "running": running,
         "defaultIgn": selector.default_ign,
+        "readyCount": ready_count,
+        "connectedCount": connected_count,
         "accounts": list,
     }))
 }
@@ -710,13 +754,77 @@ struct LogsQuery {
 
 async fn logs(State(state): State<ApiState>, Query(query): Query<LogsQuery>) -> Json<Value> {
     let want = query.lines.unwrap_or(200).min(2000);
-    let content = tokio::fs::read_to_string(state.log_path.as_ref())
+    let content = read_runtime_log(&state).await;
+    let all: Vec<String> = content.lines().map(strip_ansi).collect();
+    let start = all.len().saturating_sub(want);
+    Json(json!({ "lines": all[start..].to_vec() }))
+}
+
+#[derive(Deserialize)]
+struct AlertsQuery {
+    lines: Option<usize>,
+}
+
+/// Recent WARN/ERROR log lines, parsed for the Diagnostics/Alerts feed.
+async fn alerts(State(state): State<ApiState>, Query(query): Query<AlertsQuery>) -> Json<Value> {
+    let want = query.lines.unwrap_or(120).min(500);
+    let content = read_runtime_log(&state).await;
+    let mut out: Vec<Value> = Vec::new();
+    for raw in content.lines().rev() {
+        let line = strip_ansi(raw);
+        let mut tokens = line.split_whitespace();
+        let ts = tokens.next().unwrap_or("").to_string();
+        let level = match tokens.next() {
+            Some("ERROR") => "error",
+            Some("WARN") => "warn",
+            _ => continue,
+        };
+        out.push(json!({ "ts": ts, "level": level, "message": line }));
+        if out.len() >= want {
+            break;
+        }
+    }
+    out.reverse();
+    Json(json!({ "alerts": out }))
+}
+
+/// Read the runtime log, preferring the configured `latest.log` but falling back
+/// to the tmux console log the supervised runtime actually writes.
+async fn read_runtime_log(state: &ApiState) -> String {
+    let primary = tokio::fs::read_to_string(state.log_path.as_ref())
         .await
         .unwrap_or_default();
-    let all: Vec<&str> = content.lines().collect();
-    let start = all.len().saturating_sub(want);
-    let tail: Vec<&str> = all[start..].to_vec();
-    Json(json!({ "lines": tail }))
+    if !primary.trim().is_empty() {
+        return primary;
+    }
+    if let Some(dir) = state.log_path.parent() {
+        for name in ["tmux-console.log", "latest.log"] {
+            if let Ok(text) = tokio::fs::read_to_string(dir.join(name)).await {
+                if !text.trim().is_empty() {
+                    return text;
+                }
+            }
+        }
+    }
+    primary
+}
+
+/// Strip ANSI color escapes so parsed/rendered log lines are clean.
+fn strip_ansi(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for n in chars.by_ref() {
+                if n == 'm' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 async fn commands_catalog() -> Json<Value> {

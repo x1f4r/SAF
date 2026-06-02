@@ -59,14 +59,18 @@ function ActivityRowContent({ event }: { event: LiveEvent }) {
 }
 
 function AccountRowContent({ a }: { a: AccountInfo }) {
+  const sub = a.ready
+    ? `${a.stats.bought} bought · ${a.stats.sold} sold`
+    : a.reason ?? "Not ready";
+  const dot = a.ready ? "var(--profit)" : (a.status === "offline" ? "var(--t3)" : "var(--warn)");
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%" }}>
       <AccountAvatar url={a.headUrl} size={28} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--t1)" }}>{a.ign}</div>
-        <div className="num" style={{ fontSize: 10.5, fontWeight: 500, color: "var(--t3)", marginTop: 1 }}>{a.stats.bought} bought · {a.stats.sold} sold</div>
+        <div style={{ fontSize: 10.5, fontWeight: 500, color: a.ready ? "var(--t3)" : "var(--warn)", marginTop: 1 }}>{sub}</div>
       </div>
-      <StatusDot color={a.running ? "var(--profit)" : "var(--t3)"} pulse={a.running} />
+      <StatusDot color={dot} pulse={a.ready} />
     </div>
   );
 }
@@ -91,10 +95,12 @@ export function DashboardView() {
   const cum = s.series?.points?.[s.series.points.length - 1]?.cumulative ?? 0;
   const live = s.status?.marketMode === "live";
   const modeWord = live ? "live" : "dry-run";
-  const accountsList = s.accounts?.accounts ?? [];
+  const allAccounts = s.accounts?.accounts ?? [];
+  const accountsList = allAccounts.filter((a) => (a.status ?? (a.running ? "online" : "offline")) !== "offline");
+  const notConnected = allAccounts.length - accountsList.length;
 
   const subtitle = (
-    <span>{s.runningCount}/{s.configuredCount} accounts running&nbsp;&nbsp;·&nbsp;&nbsp;market{" "}
+    <span>{s.connectedCount}/{s.configuredCount} accounts online&nbsp;&nbsp;·&nbsp;&nbsp;market{" "}
       <span style={{ color: live ? "var(--warn)" : "var(--profit)", fontWeight: 600 }}>{modeWord}</span>
     </span>
   );
@@ -122,7 +128,7 @@ export function DashboardView() {
         <VRule height={52} />
         <Metric label="Purse" value={Fmt.coins(s.profit?.purse ?? 0)} sub="liquid" color="var(--gold)" />
         <VRule height={52} />
-        <Metric label="Accounts" value={`${s.runningCount}/${s.configuredCount}`} sub={s.running ? "active" : "halted"} subColor={s.running ? "var(--profit)" : "var(--warn)"} />
+        <Metric label="Ready" value={`${s.readyCount}/${s.configuredCount}`} sub={s.readyCount > 0 ? "ready to flip" : "none ready"} subColor={s.readyCount > 0 ? "var(--profit)" : "var(--warn)"} />
       </div>
       <Hairline />
 
@@ -151,8 +157,13 @@ export function DashboardView() {
             <SectionLabel title="Accounts" icon="person.2.fill"
               trailing={<button onClick={() => s.setTab("accounts")} style={linkBtn}>Manage</button>} />
             {accountsList.length === 0
-              ? <EmptyState icon="person.fill" text="No accounts." height={90} />
+              ? <EmptyState icon="person.fill" text={notConnected > 0 ? "No accounts connected." : "No accounts."} height={90} />
               : <div>{accountsList.slice(0, 5).map((a, i) => <ListRow key={a.ign} separator={i < Math.min(4, accountsList.length - 1)}><AccountRowContent a={a} /></ListRow>)}</div>}
+            {notConnected > 0 && (
+              <button onClick={() => s.setTab("accounts")} style={{ ...linkBtn, color: "var(--t3)", textAlign: "left", marginTop: 2 }}>
+                {notConnected} not connected
+              </button>
+            )}
           </div>
         </div>
       </div>

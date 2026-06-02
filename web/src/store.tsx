@@ -15,6 +15,7 @@ import { EventStream } from "./events";
 import { Fmt } from "./format";
 import type {
   AccountsResponse,
+  Alert,
   BotStatus,
   CommandDefinition,
   FlipRecord,
@@ -27,7 +28,14 @@ import type {
 
 export type Tab =
   | "dashboard" | "accounts" | "flips" | "profit"
-  | "queue" | "logs" | "commands" | "settings";
+  | "queue" | "logs" | "commands" | "diagnostics" | "settings";
+
+export interface DiagEvent {
+  id: number;
+  ts: number;
+  level: "info" | "warn" | "error";
+  message: string;
+}
 
 export interface Toast {
   id: number;
@@ -52,6 +60,8 @@ interface StoreValue {
   logs: string[];
   events: LiveEvent[];
   commands: CommandDefinition[];
+  alerts: Alert[];
+  diag: DiagEvent[];
 
   streamConnected: boolean;
   reachable: boolean;
@@ -62,8 +72,13 @@ interface StoreValue {
   running: boolean;
   runningCount: number;
   configuredCount: number;
+  connectedCount: number;
+  readyCount: number;
   weekProfit: number;
   ppHour: number;
+  connectionState: "disconnected" | "connecting" | "connected" | "degraded";
+
+  logDiag: (level: DiagEvent["level"], message: string) => void;
 
   login: (password: string) => Promise<boolean>;
   logout: () => void;
@@ -98,6 +113,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [commands, setCommands] = useState<CommandDefinition[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [diag, setDiag] = useState<DiagEvent[]>([]);
 
   const [streamConnected, setStreamConnected] = useState(false);
   const [reachable, setReachable] = useState(false);
@@ -106,6 +123,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const tickRef = useRef(0);
   const streamRef = useRef<EventStream | null>(null);
+  const diagSeq = useRef(1);
+  const wasReachable = useRef(false);
+
+  const logDiag = useCallback((level: DiagEvent["level"], message: string) => {
+    setDiag((prev) => [{ id: diagSeq.current++, ts: Date.now(), level, message }, ...prev].slice(0, 300));
+  }, []);
 
   const showToast = useCallback((t: Omit<Toast, "id">) => {
     const full = { ...t, id: toastSeq++ };
@@ -121,11 +144,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setProfit(p);
       setReachable(true);
       setLastError(undefined);
+      if (!wasReachable.current) { logDiag("info", "Connected to the bot."); wasReachable.current = true; }
       const tick = tickRef.current;
       if (tick % 3 === 0) {
         api.profitSeries("all", 0, 1800).then(setSeries).catch(() => {});
         api.boughtFlips(200).then(setBought).catch(() => {});
         api.soldFlips(200).then(setSold).catch(() => {});
+        api.alerts(120).then(setAlerts).catch(() => {});
       }
       api.logs(300).then(setLogs).catch(() => {});
       setCommands((cur) => {
@@ -135,12 +160,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setReachable(false);
       if (e instanceof APIError && e.status === 401) {
+        logDiag("warn", "Session expired — please sign in again.");
         setPhase("login");
         return;
       }
-      setLastError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      if (wasReachable.current) { logDiag("error", "Lost connection to the bot: " + msg); wasReachable.current = false; }
     }
-  }, []);
+  }, [logDiag]);
 
   const applyEvent = useCallback((event: LiveEvent) => {
     setEvents((prev) => [event, ...prev].slice(0, 250));
@@ -185,7 +213,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refresh();
     const stream = new EventStream();
     stream.onEvent = applyEvent;
-    stream.onState = setStreamConnected;
+    let lastStreamState: boolean | null = null;
+    stream.onState = (connected) => {
+      setStreamConnected(connected);
+      if (lastStreamState !== null && lastStreamState !== connected) {
+        logDiag(connected ? "info" : "warn", connected ? "Live feed connected." : "Live feed dropped — reconnecting.");
+      }
+      lastStreamState = connected;
+    };
     stream.start();
     streamRef.current = stream;
     const timer = setInterval(() => {
@@ -199,7 +234,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       stream.stop();
       streamRef.current = null;
     };
-  }, [phase, refresh, applyEvent]);
+  }, [phase, refresh, applyEvent, logDiag]);
 
   const login = useCallback(async (password: string) => {
     try {
@@ -259,23 +294,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch((e) => showToast({ icon: "x", tint: "var(--loss)", title: "Failed", detail: String(e?.message ?? e) }));
   }, [refresh, showToast]);
 
+  const connectedCount = accounts?.connectedCount
+    ?? (accounts?.accounts ?? []).filter((a) => a.status === "online").length;
+  const readyCount = accounts?.readyCount
+    ?? (accounts?.accounts ?? []).filter((a) => a.ready).length;
+  const connectionState: StoreValue["connectionState"] = !reachable
+    ? (phase === "live" ? "connecting" : "disconnected")
+    : (streamConnected ? "connected" : "degraded");
+
   const value = useMemo<StoreValue>(() => ({
     phase, session, tab, setTab,
-    status, accounts, profit, series, bought, sold, logs, events, commands,
+    status, accounts, profit, series, bought, sold, logs, events, commands, alerts, diag,
     streamConnected, reachable, lastError, toast,
     isHalted: status?.halted ?? true,
     running: !(status?.halted ?? true),
     runningCount: status?.running.length ?? 0,
     configuredCount: status?.configured.length ?? accounts?.configured.length ?? 0,
+    connectedCount, readyCount, connectionState,
     weekProfit: (() => {
       const cutoff = Date.now() - 7 * 86400_000;
       return bought.filter((f) => f.ts >= cutoff).reduce((x, f) => x + f.profit, 0);
     })(),
     ppHour: (accounts?.accounts ?? []).reduce((x, a) => x + (a.running ? a.stats.profitPerHour ?? 0 : 0), 0),
-    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast,
+    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast, logDiag,
   }), [phase, session, tab, status, accounts, profit, series, bought, sold, logs, events,
-    commands, streamConnected, reachable, lastError, toast,
-    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast]);
+    commands, alerts, diag, streamConnected, reachable, lastError, toast, connectedCount, readyCount, connectionState,
+    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast, logDiag]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

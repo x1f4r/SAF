@@ -43,16 +43,33 @@ struct AccountInfo: Codable, Equatable, Identifiable, Hashable {
     var running: Bool
     var queueSize: Int
     var connectionId: String?
+    var coflConnected: Bool?
+    var hasCookie: Bool?
+    var status: String?          // offline | connecting | online
+    var ready: Bool?
+    var reason: String?
     var stats: AccountStats
     var headUrl: String?
     var id: String { ign }
+
+    var effectiveStatus: String { status ?? (running ? "online" : "offline") }
+    var isOffline: Bool { effectiveStatus == "offline" }
 }
 
 struct AccountsResponse: Codable, Equatable {
     var configured: [String]
     var running: [String]
     var defaultIgn: String?
+    var readyCount: Int?
+    var connectedCount: Int?
     var accounts: [AccountInfo]
+}
+
+struct Alert: Codable, Equatable, Identifiable {
+    var ts: String
+    var level: String   // warn | error
+    var message: String
+    var id: String { ts + message }
 }
 
 // MARK: - Profit

@@ -100,6 +100,10 @@ struct APIClient {
         struct R: Codable { var lines: [String] }
         return try await send(request("v1/logs?lines=\(lines)"), as: R.self).lines
     }
+    func alerts(lines: Int = 120) async throws -> [Alert] {
+        struct R: Codable { var alerts: [Alert] }
+        return try await send(request("v1/alerts?lines=\(lines)"), as: R.self).alerts
+    }
     func commands() async throws -> [CommandDefinition] {
         try await send(request("v1/commands"), as: CommandsResponse.self).commands
     }

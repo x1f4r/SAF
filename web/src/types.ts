@@ -34,11 +34,18 @@ export interface AccountStats {
   auctionSlotsMax?: number | null;
 }
 
+export type AccountStatus = "offline" | "connecting" | "online";
+
 export interface AccountInfo {
   ign: string;
   running: boolean;
   queueSize: number;
   connectionId?: string | null;
+  coflConnected?: boolean;
+  hasCookie?: boolean;
+  status?: AccountStatus;
+  ready?: boolean;
+  reason?: string | null;
   stats: AccountStats;
   headUrl?: string | null;
 }
@@ -47,7 +54,15 @@ export interface AccountsResponse {
   configured: string[];
   running: string[];
   defaultIgn?: string;
+  readyCount?: number;
+  connectedCount?: number;
   accounts: AccountInfo[];
+}
+
+export interface Alert {
+  ts: string;
+  level: "warn" | "error";
+  message: string;
 }
 
 export interface ProfitFigures {

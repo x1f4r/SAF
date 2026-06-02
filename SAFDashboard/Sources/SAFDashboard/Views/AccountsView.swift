@@ -1,21 +1,49 @@
 import SwiftUI
 
+enum AccountFilter: String, CaseIterable { case connected = "Connected", all = "All" }
+
 struct AccountsView: View {
     @EnvironmentObject var store: AppStore
+    @State private var filter: AccountFilter = .connected
 
     var body: some View {
-        Page {
-            PageHeader("Accounts", subtitle: "\(store.runningCount) running of \(store.configuredCount) configured")
+        let all = store.accounts?.accounts ?? []
+        let connected = all.filter { !$0.isOffline }
+        let shown = filter == .connected ? connected : all
+        let hidden = all.count - connected.count
 
-            let accounts = store.accounts?.accounts ?? []
-            if accounts.isEmpty {
-                EmptyState(icon: "person.2", text: "No accounts reported by the bot.").frame(height: 280)
+        return Page {
+            PageHeader("Accounts",
+                subtitle: "\(store.connectedCount) connected · \(store.readyCount) ready of \(store.configuredCount) configured") {
+                SegmentedPicker(selection: $filter, options: AccountFilter.allCases, label: \.rawValue)
+                    .frame(width: 220)
+            }
+
+            if shown.isEmpty {
+                EmptyState(icon: "person.2",
+                    text: all.isEmpty ? "No accounts reported by the bot." : "No accounts are connected right now. Check Diagnostics for why.")
+                    .frame(height: 260)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 420), spacing: 20)], spacing: 20) {
-                    ForEach(accounts) { account in AccountCard(account: account) }
+                    ForEach(shown) { account in AccountCard(account: account) }
                 }
             }
+
+            if filter == .connected && hidden > 0 {
+                Button("\(hidden) not connected — show all") { filter = .all }
+                    .buttonStyle(.plain).font(.rounded(12.5, .semibold)).foregroundStyle(Theme.accent)
+            }
         }
+    }
+}
+
+func accountStatusBadge(_ a: AccountInfo) -> (text: String, color: Color, filled: Bool) {
+    switch a.effectiveStatus {
+    case "offline": return ("Offline", Theme.textTertiary, false)
+    case "connecting": return ("Connecting", Theme.warn, false)
+    default:
+        if a.ready == true { return ("Ready", Theme.profit, true) }
+        return (a.reason ?? "Not ready", Theme.warn, false)
     }
 }
 
@@ -27,18 +55,31 @@ struct AccountCard: View {
     var body: some View {
         Surface(padding: 20) {
             VStack(alignment: .leading, spacing: 18) {
+                let badge = accountStatusBadge(account)
                 HStack(spacing: 13) {
                     AccountAvatar(url: account.headUrl, size: 44)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(account.ign).font(.rounded(17, .bold)).foregroundStyle(Theme.textPrimary)
                         HStack(spacing: 6) {
-                            Pill(text: account.running ? "Running" : "Idle",
-                                color: account.running ? Theme.profit : Theme.textTertiary, filled: account.running)
+                            Pill(text: badge.text, color: badge.color, filled: badge.filled)
                             if let tier = s.coflTier { Pill(text: tier, color: Theme.gold) }
                         }
                     }
                     Spacer()
-                    StatusDot(color: account.running ? Theme.profit : Theme.textTertiary, pulse: account.running)
+                    StatusDot(color: account.ready == true ? Theme.profit : (account.isOffline ? Theme.textTertiary : Theme.warn),
+                        pulse: account.ready == true)
+                }
+
+                // Why this account can't flip.
+                if account.ready != true, !account.isOffline, let reason = account.reason {
+                    HStack(spacing: 8) {
+                        Circle().fill(Theme.warn).frame(width: 7, height: 7)
+                        Text(reason).font(.rounded(12, .semibold)).foregroundStyle(Theme.warn)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 11).padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warn.opacity(0.09)))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.warn.opacity(0.25), lineWidth: 1))
                 }
 
                 HStack(alignment: .top, spacing: 0) {
@@ -46,7 +87,7 @@ struct AccountCard: View {
                     VRule(height: 30)
                     Metric(label: "Profit/hr", value: Fmt.coins(s.profitPerHour ?? 0), color: Theme.accent)
                     VRule(height: 30)
-                    Metric(label: "Purse", value: Fmt.coins(s.purse ?? 0), color: Theme.gold)
+                    Metric(label: "Purse", value: s.purse.map(Fmt.coins) ?? "—", color: Theme.gold)
                     VRule(height: 30)
                     Metric(label: "Bought", value: Fmt.int(s.bought))
                     VRule(height: 30)
@@ -54,8 +95,9 @@ struct AccountCard: View {
                 }
 
                 HStack(spacing: 16) {
-                    MetaChip(icon: "antenna.radiowaves.left.and.right", text: s.coflPingMs.map { "\($0)ms cofl" } ?? "—")
-                    MetaChip(icon: "wifi", text: s.hypixelPingMs.map { "\($0)ms mc" } ?? "—")
+                    MetaChip(icon: "antenna.radiowaves.left.and.right",
+                        text: account.coflConnected == true ? "SkyCofl connected" : "SkyCofl offline")
+                    MetaChip(icon: "checkmark.seal.fill", text: account.hasCookie == true ? "Cookie active" : "No cookie")
                     if let used = s.auctionSlotsUsed, let max = s.auctionSlotsMax {
                         MetaChip(icon: "tag.fill", text: "\(used)/\(max) slots")
                     }
@@ -92,6 +134,7 @@ struct AccountCard: View {
                 }
             }
         }
+        .opacity(account.isOffline ? 0.62 : 1)
     }
 }
 
