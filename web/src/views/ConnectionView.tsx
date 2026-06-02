@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Fmt } from "../format";
+import { Notify } from "../notify";
 import {
   Page,
   PageHeader,
@@ -42,6 +43,28 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
         {value}
       </span>
     </div>
+  );
+}
+
+function NotificationsToggle() {
+  const [on, setOn] = useState(Notify.enabled);
+  if (!Notify.supported) return null;
+  return (
+    <Surface>
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 999, background: "color-mix(in srgb, var(--accent) 15%, transparent)", color: "var(--accent)" }}>
+          <Icon name="bell.fill" size={15} />
+        </span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-1)" }}>Desktop notifications</div>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-3)" }}>Buys, sells, and errors when this tab is in the background.</div>
+        </div>
+        <button onClick={async () => { if (on) { Notify.disable(); setOn(false); } else { setOn(await Notify.enable()); } }}
+          style={{ width: 44, height: 26, borderRadius: 999, border: "none", cursor: "pointer", padding: 3, background: on ? "var(--brand-grad-h)" : "rgba(255,255,255,0.1)", display: "flex", justifyContent: on ? "flex-end" : "flex-start", transition: "all 0.15s" }}>
+          <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#fff" }} />
+        </button>
+      </div>
+    </Surface>
   );
 }
 
@@ -144,6 +167,9 @@ export function ConnectionView() {
           </div>
         </div>
       </Surface>
+
+      {/* Notifications */}
+      <NotificationsToggle />
 
       {/* Setup help */}
       <Surface>

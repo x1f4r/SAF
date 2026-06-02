@@ -50,6 +50,7 @@ func accountStatusBadge(_ a: AccountInfo) -> (text: String, color: Color, filled
 struct AccountCard: View {
     @EnvironmentObject var store: AppStore
     let account: AccountInfo
+    @State private var showControl = false
     private var s: AccountStats { account.stats }
 
     var body: some View {
@@ -107,6 +108,7 @@ struct AccountCard: View {
                 Hairline()
 
                 FlowLayout(spacing: 8) {
+                    ActionChip(title: "Control", icon: "slider.horizontal.3") { showControl = true }
                     ActionChip(title: "Reconcile", icon: "arrow.triangle.2.circlepath") {
                         store.runCommand("reconcile", options: ["username": .string(account.ign)], label: "Reconcile \(account.ign)")
                     }
@@ -135,6 +137,9 @@ struct AccountCard: View {
             }
         }
         .opacity(account.isOffline ? 0.62 : 1)
+        .sheet(isPresented: $showControl) {
+            AccountControlSheet(account: account).environmentObject(store)
+        }
     }
 }
 

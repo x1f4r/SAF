@@ -125,6 +125,14 @@ struct APIClient {
     }
 
     @discardableResult
+    func executeTransfer(from: String, to: String, amount: String, stopSource: Bool) async throws -> CommandResult {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "transfer": ["from": from, "to": to, "amount": amount, "stop_source": stopSource],
+        ])
+        return try await send(request("v1/command", method: "POST", body: body), as: CommandResult.self)
+    }
+
+    @discardableResult
     func executeButton(_ button: String) async throws -> CommandResult {
         let body = try JSONEncoder().encode(["button": button])
         return try await send(request("v1/command", method: "POST", body: body), as: CommandResult.self)

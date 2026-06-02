@@ -3,6 +3,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Toast } from "./components/Toast";
 import { useStore, type Tab } from "./store";
 import { AccountsView } from "./views/AccountsView";
+import { BlacklistView } from "./views/BlacklistView";
 import { CommandsView } from "./views/CommandsView";
 import { ConnectionView } from "./views/ConnectionView";
 import { DashboardView } from "./views/DashboardView";
@@ -21,11 +22,12 @@ const VIEWS: Record<Tab, () => JSX.Element> = {
   queue: QueueView,
   logs: LogsView,
   commands: CommandsView,
+  blacklist: BlacklistView,
   diagnostics: DiagnosticsView,
   settings: ConnectionView,
 };
 
-const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "diagnostics", "settings"];
+const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "blacklist", "diagnostics", "settings"];
 
 export function App() {
   const store = useStore();

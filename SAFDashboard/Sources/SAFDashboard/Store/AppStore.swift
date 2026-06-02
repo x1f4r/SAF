@@ -11,7 +11,7 @@ final class AppStore: ObservableObject {
 
     // Navigation
     enum Tab: String, CaseIterable, Identifiable {
-        case dashboard, accounts, flips, profit, queue, logs, commands, diagnostics, settings
+        case dashboard, accounts, flips, profit, queue, logs, commands, blacklist, diagnostics, settings
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -22,6 +22,7 @@ final class AppStore: ObservableObject {
             case .queue: return "Queue"
             case .logs: return "Console"
             case .commands: return "Commands"
+            case .blacklist: return "Blacklist"
             case .diagnostics: return "Diagnostics"
             case .settings: return "Connection"
             }
@@ -35,6 +36,7 @@ final class AppStore: ObservableObject {
             case .queue: return "list.bullet.rectangle.fill"
             case .logs: return "terminal.fill"
             case .commands: return "command"
+            case .blacklist: return "nosign"
             case .diagnostics: return "waveform.path.ecg"
             case .settings: return "antenna.radiowaves.left.and.right"
             }
@@ -265,6 +267,10 @@ final class AppStore: ObservableObject {
                     icon: "cart.fill", tint: Theme.profit,
                     title: "Bought \(flip.item)",
                     detail: "\(Fmt.coins(Double(flip.price))) → \(Fmt.signedCoins(flip.profit)) profit")
+                Notifier.shared.show(
+                    title: "Bought \(flip.item)",
+                    body: "\(Fmt.coins(Double(flip.price))) → \(Fmt.signedCoins(flip.profit)) profit",
+                    tag: "buy-\(flip.auctionId)")
             }
         case "sold":
             if let data = try? JSONEncoder().encode(event.raw),
@@ -275,12 +281,23 @@ final class AppStore: ObservableObject {
                 toast = ToastMessage(
                     icon: "checkmark.seal.fill", tint: Theme.gold,
                     title: "Sold \(sale.item)", detail: Fmt.coins(Double(sale.price)))
+                Notifier.shared.show(
+                    title: "Sold \(sale.item)", body: Fmt.coins(Double(sale.price)), tag: "sold")
             }
         case "state":
             if var status {
                 status.halted = event.raw.numberField("halted").map { $0 != 0 }
                     ?? (event.raw["halted"].flatMap { if case .bool(let b) = $0 { return b }; return nil } ?? status.halted)
                 self.status = status
+            }
+        case "notification":
+            if case .object(let n)? = event.raw["notification"] {
+                let title = n["title"]?.asString ?? "Notification"
+                let kind = (n["kind"]?.asString ?? "").lowercased()
+                if kind.contains("error") || kind.contains("warn") {
+                    Notifier.shared.show(
+                        title: "SAF: \(title)", body: n["body"]?.asString ?? "", tag: "alert")
+                }
             }
         default:
             break
@@ -343,6 +360,17 @@ final class AppStore: ObservableObject {
             do {
                 _ = try await api.executeLine(line)
                 toast = ToastMessage(icon: "terminal.fill", tint: Theme.accent, title: line, detail: "Sent")
+                await refresh()
+            } catch { showError(error) }
+        }
+    }
+
+    func runTransfer(from: String, to: String, amount: String, stopSource: Bool) {
+        Task {
+            guard let api else { return }
+            do {
+                _ = try await api.executeTransfer(from: from, to: to, amount: amount, stopSource: stopSource)
+                toast = ToastMessage(icon: "checkmark.circle.fill", tint: Theme.accent, title: "Transfer \(from) → \(to)", detail: "\(amount) sent")
                 await refresh()
             } catch { showError(error) }
         }

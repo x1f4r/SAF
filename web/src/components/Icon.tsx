@@ -2,7 +2,7 @@
 // views can use a single <Icon name="…"> matching the desktop app.
 import {
   Activity, AlertTriangle, Antenna, ArrowDownToLine, ArrowLeftRight, ArrowUpToLine,
-  BadgeCheck, BarChart3, Bell, Box, ChevronRight, CircleDollarSign, CircleUser, Command,
+  BadgeCheck, Ban, BarChart3, Bell, Box, ChevronRight, CircleDollarSign, CircleUser, Command,
   Copy, CreditCard, Crosshair, Crown, Gauge, Hand, Hash, Hourglass, Inbox, Key, LayoutGrid,
   LineChart, Link as LinkIcon, ListChecks, Lock, Package, Pause, Play, Radio, RefreshCw,
   RotateCw, Search, Send, Server, ShieldCheck, ShoppingCart, Sigma, SlidersHorizontal, Tag,
@@ -20,6 +20,7 @@ const MAP: Record<string, LucideIcon> = {
   queue: ListChecks, "list.bullet.rectangle.fill": ListChecks, "list.bullet": ListChecks,
   console: Terminal, "terminal.fill": Terminal, terminal: Terminal,
   command: Command,
+  nosign: Ban, ban: Ban,
   connection: Antenna, "antenna.radiowaves.left.and.right": Antenna,
   // semantic
   cart: ShoppingCart, "cart.fill": ShoppingCart,

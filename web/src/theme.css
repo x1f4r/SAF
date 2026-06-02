@@ -19,6 +19,10 @@
   --text-1: rgba(255, 255, 255, 0.96);
   --text-2: rgba(255, 255, 255, 0.62);
   --text-3: rgba(255, 255, 255, 0.4);
+  /* Short aliases used by the design-matched views. */
+  --t1: var(--text-1);
+  --t2: var(--text-2);
+  --t3: var(--text-3);
 
   --radius: 20px;
   --radius-sm: 12px;

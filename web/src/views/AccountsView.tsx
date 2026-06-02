@@ -9,6 +9,7 @@ import {
 import { Fmt } from "../format";
 import { useStore } from "../store";
 import type { AccountInfo } from "../types";
+import { ControlSheet } from "./ControlSheet";
 
 type Filter = "connected" | "all";
 
@@ -65,6 +66,7 @@ function AccountCard({ account }: { account: AccountInfo }) {
   const status = account.status ?? (account.running ? "online" : "offline");
   const badge = statusBadge(account);
   const offline = status === "offline";
+  const [control, setControl] = useState(false);
 
   return (
     <Surface padding={20} style={offline ? { opacity: 0.62 } : undefined}>
@@ -115,6 +117,7 @@ function AccountCard({ account }: { account: AccountInfo }) {
         <Hairline />
 
         <div className="flow">
+          <ActionChip title="Control" icon="slider.horizontal.3" onClick={() => setControl(true)} />
           <ActionChip title="Reconcile" icon="arrow.triangle.2.circlepath"
             onClick={() => store.runCommand("reconcile", { username: account.ign }, `Reconcile ${account.ign}`)} />
           <ActionChip title="Claim Sold" icon="tray.and.arrow.down"
@@ -134,6 +137,7 @@ function AccountCard({ account }: { account: AccountInfo }) {
           )}
         </div>
       </div>
+      {control && <ControlSheet account={account} onClose={() => setControl(false)} />}
     </Surface>
   );
 }

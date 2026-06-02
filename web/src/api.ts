@@ -73,6 +73,8 @@ export const api = {
 
   execute: (command: string, options: Record<string, unknown> = {}) =>
     post("/api/command", Object.keys(options).length ? { command, options } : { command }),
+  transfer: (from: string, to: string, amount: string, stopSource = true) =>
+    post("/api/command", { transfer: { from, to, amount, stop_source: stopSource } }),
   executeLine: (line: string) => post("/api/command", { line }),
   executeButton: (button: string) => post("/api/command", { button }),
   control: (action: string) => post(`/api/control/${encodeURIComponent(action)}`),

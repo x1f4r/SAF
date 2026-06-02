@@ -13,6 +13,7 @@ import {
 import { api, APIError } from "./api";
 import { EventStream } from "./events";
 import { Fmt } from "./format";
+import { Notify } from "./notify";
 import type {
   AccountsResponse,
   Alert,
@@ -28,7 +29,7 @@ import type {
 
 export type Tab =
   | "dashboard" | "accounts" | "flips" | "profit"
-  | "queue" | "logs" | "commands" | "diagnostics" | "settings";
+  | "queue" | "logs" | "commands" | "blacklist" | "diagnostics" | "settings";
 
 export interface DiagEvent {
   id: number;
@@ -87,6 +88,7 @@ interface StoreValue {
   runCommand: (name: string, options?: Record<string, unknown>, label?: string) => void;
   runButton: (button: string, title: string) => void;
   runLine: (line: string) => void;
+  runTransfer: (from: string, to: string, amount: string, stopSource: boolean) => void;
   showToast: (t: Omit<Toast, "id">) => void;
 }
 
@@ -179,12 +181,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         icon: "cart", tint: "var(--profit)", title: `Bought ${r.item}`,
         detail: `${Fmt.coins(r.price)} → ${Fmt.signedCoins(r.profit)} profit`,
       });
+      Notify.show(`Bought ${r.item}`, `${Fmt.coins(r.price)} → ${Fmt.signedCoins(r.profit)} profit`, `buy-${r.auctionId}`);
     } else if (event.type === "sold") {
       const r = event.raw as SaleRecord;
       setSold((prev) => [r, ...prev].slice(0, 400));
       showToast({ icon: "seal", tint: "var(--gold)", title: `Sold ${r.item}`, detail: Fmt.coins(r.price) });
+      Notify.show(`Sold ${r.item}`, Fmt.coins(r.price), "sold");
     } else if (event.type === "state") {
       setStatus((cur) => (cur ? { ...cur, halted: !!event.raw.halted, paused: !!event.raw.paused } : cur));
+    } else if (event.type === "notification") {
+      const n = event.raw.notification;
+      const title = n?.title ?? "Notification";
+      const kind = String(n?.kind ?? "").toLowerCase();
+      if (kind.includes("error") || kind.includes("warn")) {
+        Notify.show(`SAF: ${title}`, String(n?.body ?? ""), "alert");
+      }
     }
   }, [showToast]);
 
@@ -294,6 +305,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .catch((e) => showToast({ icon: "x", tint: "var(--loss)", title: "Failed", detail: String(e?.message ?? e) }));
   }, [refresh, showToast]);
 
+  const runTransfer = useCallback((from: string, to: string, amount: string, stopSource: boolean) => {
+    api.transfer(from, to, amount, stopSource)
+      .then(() => { showToast({ icon: "check", tint: "var(--accent)", title: `Transfer ${from} → ${to}`, detail: `${amount} sent` }); refresh(); })
+      .catch((e) => showToast({ icon: "x", tint: "var(--loss)", title: "Transfer failed", detail: String(e?.message ?? e) }));
+  }, [refresh, showToast]);
+
   const connectedCount = accounts?.connectedCount
     ?? (accounts?.accounts ?? []).filter((a) => a.status === "online").length;
   const readyCount = accounts?.readyCount
@@ -316,10 +333,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return bought.filter((f) => f.ts >= cutoff).reduce((x, f) => x + f.profit, 0);
     })(),
     ppHour: (accounts?.accounts ?? []).reduce((x, a) => x + (a.running ? a.stats.profitPerHour ?? 0 : 0), 0),
-    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast, logDiag,
+    login, logout, refresh, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag,
   }), [phase, session, tab, status, accounts, profit, series, bought, sold, logs, events,
     commands, alerts, diag, streamConnected, reachable, lastError, toast, connectedCount, readyCount, connectionState,
-    login, logout, refresh, runControl, runCommand, runButton, runLine, showToast, logDiag]);
+    login, logout, refresh, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

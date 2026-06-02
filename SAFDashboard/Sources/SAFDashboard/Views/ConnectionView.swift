@@ -55,6 +55,8 @@ struct ConnectionView: View {
 
                 WebServerSection()
 
+                NotificationsSection()
+
                 setupHelp
         }
         .onAppear {
@@ -120,6 +122,41 @@ struct ConnectionView: View {
                 CodeBlock("scripts/setup-dashboard-api.sh <ssh-destination>")
                 Text("It prints a token — paste it above. Moving to a brand-new VPS only means re-running this and updating the destination here; your bot's saved state lives on the server.")
                     .font(.rounded(11.5, .medium)).foregroundStyle(Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+struct NotificationsSection: View {
+    @State private var on = Notifier.shared.enabled
+    @State private var busy = false
+
+    var body: some View {
+        if Notifier.shared.supported {
+            Card {
+                HStack(spacing: 14) {
+                    Image(systemName: "bell.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.accent)
+                        .frame(width: 32, height: 32).background(Circle().fill(Theme.accent.opacity(0.15)))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Desktop notifications").font(.rounded(13, .bold)).foregroundStyle(Theme.textPrimary)
+                        Text("Buys, sells, and errors when the app is in the background.")
+                            .font(.rounded(11.5, .medium)).foregroundStyle(Theme.textTertiary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $on)
+                        .labelsHidden().toggleStyle(.switch).tint(Theme.accent).disabled(busy)
+                        .onChange(of: on) { _, want in
+                            if want {
+                                busy = true
+                                Task {
+                                    let granted = await Notifier.shared.enable()
+                                    await MainActor.run { on = granted; busy = false }
+                                }
+                            } else {
+                                Notifier.shared.disable()
+                            }
+                        }
+                }
             }
         }
     }
