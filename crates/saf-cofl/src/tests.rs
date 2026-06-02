@@ -716,7 +716,12 @@ fn authmod_login_links_are_extracted_from_click_payloads() {
 }
 
 #[test]
-fn authmod_login_links_are_built_from_hover_connection_ids() {
+fn diagnostic_connection_id_hover_is_not_treated_as_a_login_link() {
+    // Coflnet's greeting carries a *diagnostic* connection id in its hover
+    // ("copy that if you encounter an error"), not an authorization token. It
+    // arrives before the real login link, so synthesizing `authmod?conId=<that>`
+    // produced a link that looked valid but never bound the session. This must
+    // yield no login link; only the real `authmod` URL (sent separately) counts.
     let envelope = CoflEnvelope::from_wire(
         json!({
             "type": "writeToChat",
@@ -730,8 +735,31 @@ fn authmod_login_links_are_built_from_hover_connection_ids() {
     )
     .unwrap();
 
+    assert!(
+        envelope.auth_links().is_empty(),
+        "diagnostic connection-id hover must not produce a login link, got {:?}",
+        envelope.auth_links()
+    );
+}
+
+#[test]
+fn real_authmod_link_wins_over_diagnostic_connection_id() {
+    // The real login message carries the mcid + the authoritative base64 conId;
+    // even alongside a diagnostic `conId:` hover, only the real URL is returned.
+    let envelope = CoflEnvelope::from_wire(
+        json!({
+            "type": "chatMessage",
+            "data": [
+                { "text": "Attempting to load your settings conId: 48e8160ac4ad781555f7687d23d6ccf9", "onClick": null, "hover": null },
+                { "text": "Please §lclick https://sky.coflnet.com/authmod?mcid=Main&conId=YKA6UlaBK9Ms98VAYq9WuKg%3d to login", "onClick": null, "hover": null }
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+
     assert_eq!(
         envelope.auth_links(),
-        vec!["https://sky.coflnet.com/authmod?conId=48e8160ac4ad781555f7687d23d6ccf9"]
+        vec!["https://sky.coflnet.com/authmod?mcid=Main&conId=YKA6UlaBK9Ms98VAYq9WuKg%3d"]
     );
 }

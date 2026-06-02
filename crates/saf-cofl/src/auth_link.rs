@@ -5,6 +5,17 @@ use url::Url;
 const SKY_COFL_AUTH_HOST: &str = "sky.coflnet.com";
 const SKY_COFL_AUTH_PATH: &str = "/authmod";
 
+/// Extract the SkyCofl login links Coflnet actually sends: full
+/// `https://sky.coflnet.com/authmod?...` URLs that carry the `mcid` and the
+/// authoritative (base64) `conId`. Opening one of these and logging in binds the
+/// session.
+///
+/// We deliberately do NOT synthesize a link from a bare `conId:` marker. Coflnet
+/// prints a *diagnostic* connection id in its greeting ("Attempting to load your
+/// settings ... conId: <32 hex>", "copy that if you encounter an error"). That id
+/// is for error reports, not authorization — its envelope arrives before the real
+/// login link, and building `authmod?conId=<that>` produced a link that looked
+/// valid but never bound the session, stranding the operator's login.
 pub fn cofl_auth_links(data: &Value) -> Vec<String> {
     let mut links = Vec::new();
     collect_auth_links_from_value(data, &mut links);
@@ -39,11 +50,8 @@ pub fn collect_auth_links_from_text(text: &str, links: &mut Vec<String>) {
         let candidate = trim_url_token(token);
         if is_sky_cofl_auth_link(candidate) {
             links.push(candidate.to_string());
-        } else if let Some(connection_id) = cofl_auth_connection_id(candidate) {
-            links.push(sky_cofl_auth_link(&connection_id));
         }
     }
-    collect_auth_connection_ids_from_text(&cleaned, links);
 }
 
 fn trim_url_token(token: &str) -> &str {
@@ -68,41 +76,4 @@ fn is_sky_cofl_auth_link(candidate: &str) -> bool {
         && url
             .query_pairs()
             .any(|(key, value)| key.eq_ignore_ascii_case("conId") && !value.trim().is_empty())
-}
-
-fn cofl_auth_connection_id(candidate: &str) -> Option<String> {
-    let (_, raw) = candidate
-        .split_once("conId:")
-        .or_else(|| candidate.split_once("conId="))?;
-    let raw = raw.trim().trim_matches(|character: char| {
-        matches!(
-            character,
-            '"' | '\'' | '`' | '<' | '>' | '[' | ']' | '(' | ')' | '{' | '}' | ',' | '.'
-        )
-    });
-    let id = raw
-        .chars()
-        .take_while(|character| {
-            character.is_ascii_alphanumeric()
-                || matches!(*character, '%' | '_' | '-' | '.' | '+' | '/' | '=')
-        })
-        .collect::<String>();
-    (!id.trim().is_empty()).then_some(id)
-}
-
-fn collect_auth_connection_ids_from_text(text: &str, links: &mut Vec<String>) {
-    let marker = "conId:";
-    let mut rest = text;
-    while let Some((_, after_marker)) = rest.split_once(marker) {
-        if let Some(connection_id) = cofl_auth_connection_id(&format!("{marker}{after_marker}")) {
-            links.push(sky_cofl_auth_link(&connection_id));
-        }
-        rest = after_marker;
-    }
-}
-
-fn sky_cofl_auth_link(connection_id: &str) -> String {
-    let encoded =
-        url::form_urlencoded::byte_serialize(connection_id.as_bytes()).collect::<String>();
-    format!("https://sky.coflnet.com/authmod?conId={encoded}")
 }
