@@ -7,7 +7,8 @@ set -Eeuo pipefail
 
 OUT="${1:-/tmp/saf-shots/shot.png}"
 mkdir -p "$(dirname "$OUT")"
-OWNER="SAFDashboard"
+# CGWindowOwnerName is the app's display name, not the binary name.
+OWNER="SAF Dashboard"
 
 # Bring the app forward so its window is on-screen and unobscured.
 osascript -e 'tell application "SAF Dashboard" to activate' >/dev/null 2>&1 || true
