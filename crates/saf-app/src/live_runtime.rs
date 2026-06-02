@@ -10,6 +10,7 @@ mod auction_windows;
 mod auto_cookie;
 mod bank;
 mod chat_events;
+mod cookie_forcer;
 #[cfg(feature = "live-cofl")]
 mod cofl;
 #[cfg(feature = "api")]
@@ -240,6 +241,10 @@ pub struct LiveRuntime {
     island_states: BTreeMap<AccountId, LiveIslandState>,
     cookie_prices: Arc<dyn CookiePriceProvider>,
     pending_auto_cookies: BTreeMap<AccountId, PendingAutoCookie>,
+    /// Accounts the operator has manually requested an immediate booster-cookie
+    /// buy for. Shared with the `LiveCookieForcer` port; drained each poll by
+    /// `drive_forced_cookies_once`.
+    cookie_force_requests: Arc<Mutex<BTreeSet<AccountId>>>,
     auction_reconcile_poller: Option<LiveAuctionReconcilePoller>,
     bank_cooldowns: BankCooldownStore,
     pending_market_steps: BTreeMap<AccountId, PendingMarketStep>,

@@ -381,6 +381,14 @@ impl RuntimeSession {
                 .await?;
                 Ok(RuntimeOutcome::Executed { directive })
             }
+            RuntimeDirective::Cookie { account } => {
+                if let Some(forcer) = self.cookie_forcer() {
+                    forcer.force_cookie(account).await?;
+                    Ok(RuntimeOutcome::Executed { directive })
+                } else {
+                    Ok(RuntimeOutcome::Planned { directive })
+                }
+            }
             RuntimeDirective::UnknownTerminalCommand {
                 command, message, ..
             } => Err(RuntimeError::Invalid(unknown_terminal_command_message(

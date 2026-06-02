@@ -235,6 +235,20 @@ impl LiveRuntime {
             halted.clone(),
         )));
 
+        // Manual booster-cookie requests: shared between the CookieForcer port
+        // (which records them) and the runtime loop (which drains and buys).
+        let cookie_force_requests = Arc::new(Mutex::new(BTreeSet::new()));
+        // Mirrors `auto_cookie_threshold`: a `0`/empty interval means the buy
+        // path short-circuits, so reject the command up front instead of
+        // reporting a success that never buys.
+        let auto_cookie_enabled =
+            saf_core::time::normal_time(&config.auto_cookie).is_some_and(|d| !d.is_zero());
+        session.set_cookie_forcer(Arc::new(super::cookie_forcer::LiveCookieForcer::new(
+            cookie_force_requests.clone(),
+            config.use_cookie && config.relist,
+            auto_cookie_enabled,
+        )));
+
         let scheduler_shutdown = shutdown.clone();
         let scheduler_halted = halted.clone();
         let session = Arc::new_cyclic(move |weak_session| {
@@ -365,6 +379,7 @@ impl LiveRuntime {
             island_states,
             cookie_prices,
             pending_auto_cookies: BTreeMap::new(),
+            cookie_force_requests,
             auction_reconcile_poller,
             bank_cooldowns,
             pending_market_steps: BTreeMap::new(),

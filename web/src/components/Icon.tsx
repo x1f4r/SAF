@@ -3,6 +3,7 @@
 import {
   Activity, AlertTriangle, Antenna, ArrowDownToLine, ArrowLeftRight, ArrowUpToLine,
   BadgeCheck, Ban, BarChart3, Bell, Box, ChevronRight, CircleDollarSign, CircleUser, Command,
+  Cookie,
   Copy, CreditCard, Crosshair, Crown, Gauge, Hand, Hash, Hourglass, Inbox, Key, LayoutGrid,
   LineChart, Link as LinkIcon, ListChecks, Lock, Package, Pause, Play, Radio, RefreshCw,
   RotateCw, Search, Send, Server, ShieldCheck, ShoppingCart, Sigma, SlidersHorizontal, Tag,
@@ -25,6 +26,7 @@ const MAP: Record<string, LucideIcon> = {
   // semantic
   cart: ShoppingCart, "cart.fill": ShoppingCart,
   seal: BadgeCheck, "checkmark.seal.fill": BadgeCheck, "checkmark.seal": BadgeCheck,
+  cookie: Cookie, "birthday.cake.fill": Cookie, "birthday.cake": Cookie,
   speedometer: Gauge, gauge: Gauge,
   purse: CreditCard, "creditcard.fill": CreditCard,
   live: Radio, "dot.radiowaves.left.and.right": Radio,

@@ -482,6 +482,16 @@ fn plans_account_prefixes_without_collisions() {
 }
 
 #[test]
+fn plans_cookie_command_for_account() {
+    assert_eq!(
+        runtime().plan_terminal_line("MainAlt cookie").unwrap(),
+        RuntimeDirective::Cookie {
+            account: AccountId::new("MainAlt").unwrap(),
+        }
+    );
+}
+
+#[test]
 fn plans_start_command_against_default_account() {
     assert_eq!(
         runtime().plan_terminal_line("start").unwrap(),

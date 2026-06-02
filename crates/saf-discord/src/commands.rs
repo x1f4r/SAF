@@ -232,6 +232,11 @@ pub fn command_definitions() -> Vec<CommandDefinition> {
             vec![target.clone()],
         ),
         cmd(
+            "cookie",
+            "Force-buy and refresh the booster cookie now.",
+            vec![target.clone()],
+        ),
+        cmd(
             "bank",
             "Withdraw or deposit coins.",
             vec![

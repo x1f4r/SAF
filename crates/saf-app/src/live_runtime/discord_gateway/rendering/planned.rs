@@ -98,6 +98,9 @@ pub(in crate::live_runtime) fn format_planned_directive(directive: &RuntimeDirec
         RuntimeDirective::TestWebhook { account } => {
             format!("Webhook `{account}`\nNo notifier is configured for this runtime.")
         }
+        RuntimeDirective::Cookie { account } => format!(
+            "Cookie `{account}`\nNo live cookie machinery is registered for this runtime. Start the Rust live runtime with `production-runtime` and the account connected."
+        ),
         RuntimeDirective::UnknownTerminalCommand {
             command, message, ..
         } => {

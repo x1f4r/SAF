@@ -55,6 +55,7 @@ impl LiveRuntime {
         self.drive_startup_cookie_scans_once().await?;
         self.expire_startup_cookie_scans_once().await;
         self.drive_auto_cookies_once().await?;
+        self.drive_forced_cookies_once().await?;
         self.process_pending_live_buys_once().await?;
         self.drain_pending_purchase_relists().await?;
         self.drain_pending_transfer_followups().await?;
@@ -386,6 +387,7 @@ fn runtime_directive_summary(directive: &RuntimeDirective) -> String {
         } => format!("{account} schedule {action:?} delay_ms={delay_ms}"),
         RuntimeDirective::BlacklistCommand { account, .. } => format!("{account} blacklist"),
         RuntimeDirective::TestWebhook { account } => format!("{account} test webhook"),
+        RuntimeDirective::Cookie { account } => format!("{account} cookie"),
         RuntimeDirective::ShowStats { account } => format!("{account} stats"),
         RuntimeDirective::ShowProfit { account } => format!("{account} profit"),
         RuntimeDirective::ShowPing { account } => format!("{account} ping"),

@@ -125,6 +125,32 @@ impl LiveRuntime {
         Ok(())
     }
 
+    /// Drains operator-requested manual cookie buys (set via the `CookieForcer`
+    /// port) and forces each through the normal auto-cookie machinery, ignoring
+    /// remaining cookie time.
+    pub(in crate::live_runtime) async fn drive_forced_cookies_once(&mut self) -> Result<()> {
+        let requested: Vec<AccountId> = {
+            let mut guard = self
+                .cookie_force_requests
+                .lock()
+                .map_err(|_| anyhow::anyhow!("cookie force-request lock poisoned"))?;
+            if guard.is_empty() {
+                return Ok(());
+            }
+            std::mem::take(&mut *guard).into_iter().collect()
+        };
+        for account in requested {
+            // FORCE: `remaining = Some(Duration::ZERO)` is never `> threshold`, so it
+            // bypasses the remaining-time skip in both `start_auto_cookie_if_needed`
+            // and `should_buy_cookie`; the decision then rests purely on purse/price.
+            // The pending / use_cookie / relist / affordability gates remain, and a
+            // buy already in flight is a safe no-op (the `pending_auto_cookies` guard).
+            self.start_auto_cookie_if_needed(&account, Some(Duration::ZERO))
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(in crate::live_runtime) async fn process_auto_cookie_window(
         &mut self,
         account: &AccountId,

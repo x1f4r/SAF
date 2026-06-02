@@ -97,6 +97,9 @@ pub enum RuntimeDirective {
     TestWebhook {
         account: AccountId,
     },
+    Cookie {
+        account: AccountId,
+    },
     ScheduleAccount {
         account: AccountId,
         action: ScheduledAccountAction,

@@ -30,6 +30,7 @@ impl RuntimeSession {
             fallback_account_scheduler: None,
             notifier: None,
             supervisor: None,
+            cookie_forcer: None,
         }
     }
 
@@ -228,5 +229,14 @@ impl RuntimeSession {
     pub fn set_account_supervisor(&mut self, supervisor: Arc<dyn AccountSupervisor>) -> &mut Self {
         self.supervisor = Some(supervisor);
         self
+    }
+
+    pub fn set_cookie_forcer(&mut self, forcer: Arc<dyn CookieForcer>) -> &mut Self {
+        self.cookie_forcer = Some(forcer);
+        self
+    }
+
+    pub(crate) fn cookie_forcer(&self) -> Option<Arc<dyn CookieForcer>> {
+        self.cookie_forcer.clone()
     }
 }

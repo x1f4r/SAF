@@ -221,6 +221,7 @@ fn directive_account(directive: &RuntimeDirective) -> Option<&AccountId> {
         | RuntimeDirective::QueueDelistAll { account: from }
         | RuntimeDirective::DiagnoseSlots { account: from, .. }
         | RuntimeDirective::TestWebhook { account: from }
+        | RuntimeDirective::Cookie { account: from }
         | RuntimeDirective::ScheduleAccount { account: from, .. }
         | RuntimeDirective::UnknownTerminalCommand { account: from, .. } => Some(from),
         RuntimeDirective::StartAccounts { .. }

@@ -9,9 +9,9 @@ use crate::numbers::parse_compact_number;
 use crate::ports::{
     AccountConnection, AccountConnectionProvider, AccountScheduleRequest, AccountScheduler,
     AccountStatsProvider, AccountSupervisor, ActiveAuction, ActiveAuctionProvider, AuctionMetadata,
-    AuctionMetadataProvider, BlacklistStore, CoflClient, GuiDiagnosticsProvider, InventoryItem,
-    InventoryProvider, LogReader, MinecraftAction, MinecraftClient, Notification, Notifier,
-    QueueStore, SavedDataStore, ScheduledAccountAction, TrackedFlip, TrackedFlipProvider,
+    AuctionMetadataProvider, BlacklistStore, CoflClient, CookieForcer, GuiDiagnosticsProvider,
+    InventoryItem, InventoryProvider, LogReader, MinecraftAction, MinecraftClient, Notification,
+    Notifier, QueueStore, SavedDataStore, ScheduledAccountAction, TrackedFlip, TrackedFlipProvider,
 };
 use crate::time::{duration_to_hours, normal_time};
 use crate::{
@@ -291,6 +291,7 @@ impl BotRuntime {
                 target: (!message.is_empty()).then(|| message.to_string()),
             }),
             "test" | "test_webhook" => Ok(RuntimeDirective::TestWebhook { account }),
+            "cookie" | "buy_cookie" | "get_cookie" => Ok(RuntimeDirective::Cookie { account }),
             _ => Err(RuntimeError::Invalid(unknown_terminal_command_message(
                 command, message,
             ))),
@@ -325,6 +326,7 @@ pub struct RuntimeSession {
     fallback_account_scheduler: Option<Arc<dyn AccountScheduler>>,
     notifier: Option<Arc<dyn Notifier>>,
     supervisor: Option<Arc<dyn AccountSupervisor>>,
+    cookie_forcer: Option<Arc<dyn CookieForcer>>,
 }
 
 #[cfg(test)]

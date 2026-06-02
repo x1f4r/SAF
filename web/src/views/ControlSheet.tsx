@@ -128,6 +128,8 @@ export function ControlSheet({ account, onClose }: { account: AccountInfo; onClo
                     onClick={() => store.runCommand("start_bot", { username: ign }, `Start ${ign}`)} />
                 )}
                 <ActionChip title="Restart" icon="arrow.clockwise" onClick={restart} />
+                <ActionChip title="Buy Cookie" icon="birthday.cake.fill" variant="good"
+                  onClick={() => store.runCommand("cookie", { username: ign }, "Buy cookie")} />
               </div>
 
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>

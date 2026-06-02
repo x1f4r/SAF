@@ -108,6 +108,9 @@ struct AccountControlSheet: View {
                     store.runCommand("stop_bot", options: ["username": .string(ign)], label: "Stop \(ign)")
                     store.runCommand("start_bot", options: ["username": .string(ign)], label: "Start \(ign)")
                 }
+                ActionChip(title: "Buy Cookie", icon: "birthday.cake.fill", tint: Theme.gold) {
+                    store.runCommand("cookie", options: ["username": .string(ign)], label: "Buy cookie \(ign)")
+                }
             }
 
             chipRow(title: "Stop after", icon: "timer") {

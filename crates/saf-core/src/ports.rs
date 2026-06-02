@@ -355,6 +355,15 @@ pub trait AccountSupervisor: Send + Sync {
     async fn stop(&self, account: Option<AccountId>) -> Result<(), PortError>;
 }
 
+/// Forces a booster-cookie buy/refresh for an account right now, regardless of
+/// how much cookie time is left. The live runtime owns the multi-step bazaar
+/// flow, so the port only records the request; the runtime loop drains it and
+/// drives the existing auto-cookie machinery.
+#[async_trait]
+pub trait CookieForcer: Send + Sync {
+    async fn force_cookie(&self, account: &AccountId) -> Result<(), PortError>;
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PortError {
     #[error("port unavailable: {0}")]

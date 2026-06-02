@@ -203,6 +203,11 @@ pub fn plan_invocation(
             "reconcile",
             std::iter::empty::<&str>(),
         ))),
+        "cookie" => Ok(local_terminal(targeted_line(
+            username.as_deref(),
+            "cookie",
+            std::iter::empty::<&str>(),
+        ))),
         "test_webhook" => Ok(local_terminal(targeted_line(
             username.as_deref(),
             "test_webhook",

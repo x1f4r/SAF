@@ -244,3 +244,58 @@ fn window_text(window: &WindowSnapshot) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn force_zero_remaining_decides_buy() {
+        // A manual "cookie" force passes remaining = ZERO, which is never above
+        // the threshold, so affordability alone decides — and it buys.
+        let threshold = Duration::from_secs(3600);
+        assert_eq!(
+            should_buy_cookie(
+                Some(threshold),
+                Some(Duration::ZERO),
+                Some(10_000_000.0),
+                Some(1_000_000.0),
+            ),
+            AutoCookieDecision::Buy {
+                price: 1_000_000.0,
+            }
+        );
+    }
+
+    #[test]
+    fn fresh_cookie_skips_without_force() {
+        // Without the force (plenty of remaining time), the same affordable
+        // account is left alone.
+        let threshold = Duration::from_secs(3600);
+        assert_eq!(
+            should_buy_cookie(
+                Some(threshold),
+                Some(Duration::from_secs(7200)),
+                Some(10_000_000.0),
+                Some(1_000_000.0),
+            ),
+            AutoCookieDecision::EnoughTime
+        );
+    }
+
+    #[test]
+    fn force_still_respects_affordability() {
+        // "Force" means ignore remaining time, NOT ignore affordability: a purse
+        // below 2x the price must not buy.
+        let threshold = Duration::from_secs(3600);
+        assert!(matches!(
+            should_buy_cookie(
+                Some(threshold),
+                Some(Duration::ZERO),
+                Some(1_000_000.0),
+                Some(1_000_000.0),
+            ),
+            AutoCookieDecision::TooExpensive { .. }
+        ));
+    }
+}
