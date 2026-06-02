@@ -53,6 +53,8 @@ struct ConnectionView: View {
                     }
                 }
 
+                WebServerSection()
+
                 setupHelp
         }
         .onAppear {

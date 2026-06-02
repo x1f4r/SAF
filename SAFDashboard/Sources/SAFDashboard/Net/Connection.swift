@@ -26,7 +26,11 @@ struct ConnectionProfile: Codable, Equatable {
     /// Always satisfiable: an empty destination means a direct local connection.
     var isComplete: Bool { remotePort > 0 }
 
-    private var effectivePort: Int { usesTunnel ? localPort : remotePort }
+    /// The port on this Mac's loopback where the bot API is reachable (the
+    /// tunnel's local port, or the remote port in direct mode). A Docker
+    /// container can reach it at host.docker.internal:<this>.
+    var botLoopbackPort: Int { usesTunnel ? localPort : remotePort }
+    private var effectivePort: Int { botLoopbackPort }
     var apiBaseURL: URL { URL(string: "http://127.0.0.1:\(effectivePort)")! }
     var wsURL: URL { URL(string: "ws://127.0.0.1:\(effectivePort)/v1/events")! }
 }

@@ -86,6 +86,16 @@ tab. Copy `SavedData/` to the new host if you want profit history to carry over.
 - The app shells the system `ssh` with `BatchMode` and your existing key — no
   passwords are stored, and host keys go through the normal `known_hosts` flow.
 
+## Hosting the web dashboard from the app
+
+The macOS app can launch the self-hosted **web** dashboard for you. On the
+**Connection** tab, under *Host a Web Dashboard*, pick a port + password and
+click **Start Web Server** — the app runs the bundled `web/` Docker context with
+`docker compose` and the container connects to the bot *through this Mac*
+(`host.docker.internal`), so other devices on your network can use the dashboard
+at `http://localhost:<port>`. Requires Docker Desktop and an active connection to
+the bot. Use **Open in Browser** / **Stop** to manage it.
+
 ## Keyboard shortcuts
 
 `⌘1`–`⌘8` switch between Dashboard, Accounts, Flips, Profit, Queue, Console,

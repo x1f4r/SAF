@@ -63,6 +63,7 @@ final class AppStore: ObservableObject {
 
     let tunnel = TunnelManager()
     let stream = EventStream()
+    let webServer = WebServerManager()
 
     private var pollTask: Task<Void, Never>?
     private var tick = 0
@@ -96,6 +97,8 @@ final class AppStore: ObservableObject {
         tunnel.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
         stream.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &bag)
+        webServer.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
 
         stream.onEvent = { [weak self] event in self?.apply(event) }

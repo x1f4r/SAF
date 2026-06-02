@@ -45,6 +45,17 @@ for b in "$BIN_PATH"/*.bundle; do
 done
 shopt -u nullglob
 
+# Bundle the web dashboard's Docker build context so the app can launch the
+# self-hosted web server with `docker compose`.
+if [[ -d "$REPO_DIR/web" ]] && command -v rsync >/dev/null 2>&1; then
+    echo "==> bundling web/ (Docker context)"
+    mkdir -p "$APP/Contents/Resources/web"
+    rsync -a --delete \
+        --exclude node_modules --exclude dist --exclude .build --exclude .git \
+        --exclude '.env' --exclude '*.log' \
+        "$REPO_DIR/web/" "$APP/Contents/Resources/web/"
+fi
+
 echo "==> generating AppIcon.icns"
 if [[ -f "$ICON_SRC" ]]; then
     ICONSET="$STAGE/AppIcon.iconset"
