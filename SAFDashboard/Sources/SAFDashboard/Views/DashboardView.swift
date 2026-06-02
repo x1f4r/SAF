@@ -5,15 +5,21 @@ import SwiftUI
 struct PageHeader<Trailing: View>: View {
     let title: String
     var subtitle: String?
+    var subtitleText: Text?
     @ViewBuilder var trailing: Trailing
-    init(_ title: String, subtitle: String? = nil, @ViewBuilder trailing: () -> Trailing) {
-        self.title = title; self.subtitle = subtitle; self.trailing = trailing()
+    init(_ title: String, subtitle: String? = nil, subtitleText: Text? = nil, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.subtitle = subtitle
+        self.subtitleText = subtitleText
+        self.trailing = trailing()
     }
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.rounded(26, .bold)).foregroundStyle(Theme.textPrimary)
-                if let subtitle {
+                if let subtitleText {
+                    subtitleText.font(.rounded(13, .medium)).foregroundStyle(Theme.textSecondary)
+                } else if let subtitle {
                     Text(subtitle).font(.rounded(13, .medium)).foregroundStyle(Theme.textSecondary)
                 }
             }
@@ -54,7 +60,7 @@ struct DashboardView: View {
 
     var body: some View {
         Page {
-            PageHeader("Dashboard", subtitle: subtitle) { BotControlButtons() }
+            PageHeader("Dashboard", subtitleText: subtitleText) { BotControlButtons() }
 
             metricStrip
             Hairline()
@@ -68,28 +74,53 @@ struct DashboardView: View {
         }
     }
 
-    private var subtitle: String {
+    private var subtitleText: Text {
         let mode = store.status?.marketMode ?? "—"
-        return "\(store.runningCount)/\(store.configuredCount) accounts running   ·   market \(mode)"
+        let live = store.status?.marketMode == "live"
+        return Text("\(store.runningCount)/\(store.configuredCount) accounts running   ·   market ")
+            + Text(mode).foregroundColor(live ? Theme.warn : Theme.profit).fontWeight(.semibold)
+    }
+
+    /// Sum of tracked purchase profit over the last 7 days (the headline number).
+    private var weekProfit: Double {
+        let cutoff = UInt64(max(0, Date().timeIntervalSince1970 * 1000 - 7 * 86_400_000))
+        return store.bought.filter { $0.ts >= cutoff }.reduce(0) { $0 + $1.profit }
     }
 
     private var metricStrip: some View {
         HStack(alignment: .top, spacing: 0) {
-            Metric(label: "Total Profit", value: Fmt.coins(profit?.displayProfit ?? 0),
-                sub: "\(profit?.displayBought ?? 0) flips lifetime", color: Theme.profit, hero: true)
-            VRule(height: 46)
+            weeklyHero
+            VRule(height: 52)
             Metric(label: "Profit / hr", value: Fmt.coins(ppHour), sub: "this session", color: Theme.accent)
-            VRule(height: 46)
+            VRule(height: 52)
             Metric(label: "Bought", value: Fmt.int(profit?.displayBought ?? 0), sub: "\(store.bought.count) tracked")
-            VRule(height: 46)
+            VRule(height: 52)
             Metric(label: "Sold", value: Fmt.int(profit?.displaySold ?? 0), sub: "\(store.sold.count) tracked")
-            VRule(height: 46)
+            VRule(height: 52)
             Metric(label: "Purse", value: Fmt.coins(profit?.purse ?? 0), sub: "liquid", color: Theme.gold)
-            VRule(height: 46)
+            VRule(height: 52)
             Metric(label: "Accounts", value: "\(store.runningCount)/\(store.configuredCount)",
                 sub: store.isHalted ? "halted" : "active",
                 subColor: store.isHalted ? Theme.warn : Theme.profit)
         }
+    }
+
+    private var weeklyHero: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Net Profit · 7 Days".uppercased())
+                .font(.rounded(11, .semibold)).tracking(0.8).foregroundStyle(Theme.textTertiary)
+            HStack(spacing: 11) {
+                Text(Fmt.coins(weekProfit))
+                    .font(.numeric(36, .heavy)).foregroundStyle(Theme.profit)
+                    .lineLimit(1).minimumScaleFactor(0.5)
+                Coin(size: 26)
+            }
+            .padding(.top, 8)
+            Text("lifetime \(Fmt.coins(profit?.displayProfit ?? 0)) · \(Fmt.int(profit?.displayBought ?? 0)) flips")
+                .font(.rounded(11, .medium)).foregroundStyle(Theme.textTertiary)
+                .padding(.top, 5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var chartSection: some View {

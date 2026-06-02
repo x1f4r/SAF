@@ -130,6 +130,28 @@ struct StatusDot: View {
     }
 }
 
+/// Gold coin glyph shown beside the hero number (ported from the design's
+/// coin SVG). A radial-gold disc with an inner ring and a stamped "$".
+struct Coin: View {
+    var size: CGFloat = 26
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(
+                    colors: [Color(hex: 0xFFE9B8), Color(hex: 0xFFC861), Color(hex: 0xD79A2E)],
+                    center: UnitPoint(x: 0.38, y: 0.32), startRadius: 0, endRadius: size * 0.62))
+                .overlay(Circle().strokeBorder(Color(hex: 0x9C6F1F), lineWidth: max(0.6, size * 0.035)))
+            Circle()
+                .strokeBorder(Color(hex: 0xFFF3D4).opacity(0.5), lineWidth: max(0.6, size * 0.05))
+                .padding(size * 0.21)
+            Text("$")
+                .font(.system(size: size * 0.6, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(hex: 0x825A14).opacity(0.55))
+        }
+        .frame(width: size, height: size)
+    }
+}
+
 // MARK: - Buttons
 
 struct PrimaryButton: View {
