@@ -16,6 +16,20 @@ impl RuntimeSession {
         MarketWorkflow::from_queue_entry(entry).map(|workflow| workflow.next_step(window))
     }
 
+    /// Reads the account's current inventory through the registered inventory
+    /// provider. For the live (azalea) runtime this is a passive read of the
+    /// already-synced in-memory inventory — it does not open any GUI or move the
+    /// player — so it is safe to call on demand from the dashboard API.
+    pub async fn inventory_snapshot(
+        &self,
+        account: &AccountId,
+    ) -> Result<crate::ports::InventorySnapshot, RuntimeError> {
+        let provider = self.inventory_provider(account).ok_or_else(|| {
+            RuntimeError::Port(format!("No inventory provider registered for {account}."))
+        })?;
+        Ok(provider.snapshot(account).await?)
+    }
+
     pub async fn execute_market_instruction(
         &self,
         account: &AccountId,

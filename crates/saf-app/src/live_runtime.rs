@@ -105,6 +105,7 @@ use runtime_types::{
     DeferredMinecraftEvents, DeferredQueueEntry, PendingCompletedQueueEntry, PendingCompletionKind,
     PendingListingConfirmation, PendingListingPriceMismatchRetry, PendingMarketStep,
     PendingMissingListingInventoryRetry, PendingOpenAuctionRetry, PendingTransferFollowup,
+    PendingUnaffordableListingRetry, StaleTransitionStrikes,
 };
 pub use runtime_types::{MarketActionMode, RunLiveOptions, RunLiveReport};
 #[cfg(all(test, feature = "live-cofl"))]
@@ -172,11 +173,20 @@ use windows::active_auction_summaries;
 const MARKET_STEP_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const MARKET_WINDOW_SETTLE_DELAY: Duration = Duration::from_millis(300);
 const CLAIM_PURCHASED_OPEN_MAX_ATTEMPTS: u8 = 3;
+/// How many consecutive no-progress clicks the same market step may produce
+/// before the kill-switch aborts it. A stuck create-auction "submit" that never
+/// opens the confirmation would otherwise retry forever and spam the server
+/// (ban risk); this caps the run, abandons the step, and alerts the operator.
+const MARKET_STEP_NO_PROGRESS_MAX_STRIKES: u8 = 3;
 const STARTUP_COFL_TELEMETRY_WAIT: Duration = Duration::from_secs(5);
 const DEFERRED_QUEUE_RETRY_DELAY: Duration = Duration::from_secs(5);
 const EXPIRED_RELIST_QUEUE_DELAY: Duration = Duration::from_secs(10);
 const MISSING_LISTING_INVENTORY_RETRY_DELAY: Duration = Duration::from_secs(60);
 const MISSING_LISTING_INVENTORY_MAX_ATTEMPTS: u8 = 3;
+/// How long to hold a listing back after the account was found unable to afford
+/// its auction creation fee. Coins may free up as other auctions sell, so the
+/// listing is re-checked rather than dropped.
+const UNAFFORDABLE_LISTING_RETRY_DELAY: Duration = Duration::from_secs(120);
 const STARTUP_RECONCILE_QUEUE_DELAY: Duration = Duration::from_secs(5);
 const STARTUP_PROFILE_SCAN_TIMEOUT: Duration = Duration::from_secs(20);
 const PURCHASE_RELIST_RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -228,6 +238,10 @@ pub struct LiveRuntime {
     managed_minecraft: BTreeMap<AccountId, Arc<ManagedMinecraftClient>>,
     minecraft_ready_accounts: BTreeSet<AccountId>,
     active_windows: Arc<Mutex<BTreeMap<AccountId, WindowSnapshot>>>,
+    /// Last Manage Auctions view seen per account, filled passively whenever the
+    /// bot opens that menu. Shared with the dashboard API so the auctions view
+    /// never has to navigate the GUI itself. See [[windows::AuctionViewSnapshot]].
+    auction_views: Arc<Mutex<BTreeMap<AccountId, windows::AuctionViewSnapshot>>>,
     active_window_received_at: Mutex<BTreeMap<AccountId, Instant>>,
     active_window_observed_at: Mutex<BTreeMap<AccountId, Instant>>,
     /// Per-account jittered settle window for menu/inter-click pacing. Resampled
@@ -249,9 +263,16 @@ pub struct LiveRuntime {
     bank_cooldowns: BankCooldownStore,
     pending_market_steps: BTreeMap<AccountId, PendingMarketStep>,
     pending_open_auction_retries: BTreeMap<AccountId, PendingOpenAuctionRetry>,
+    /// Consecutive no-progress strikes for the current market step, per account.
+    /// Drives the listing/transition kill-switch that aborts a stuck step
+    /// instead of spamming the server forever.
+    stale_transition_strikes: BTreeMap<AccountId, StaleTransitionStrikes>,
     pending_missing_listing_inventory_retries:
         BTreeMap<AccountId, PendingMissingListingInventoryRetry>,
     pending_listing_price_mismatch_retries: BTreeMap<AccountId, PendingListingPriceMismatchRetry>,
+    /// Listings held off because the account can't afford the auction creation
+    /// fee right now. Re-checked after a delay rather than retried immediately.
+    pending_unaffordable_listing_retries: BTreeMap<AccountId, PendingUnaffordableListingRetry>,
     deferred_queue_entries: Vec<DeferredQueueEntry>,
     pending_purchase_relists: Vec<PendingPurchaseRelist>,
     pending_transfer_followups: Vec<PendingTransferFollowup>,

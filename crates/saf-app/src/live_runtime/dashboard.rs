@@ -29,10 +29,11 @@ use saf_discord::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use super::windows::AuctionViewSnapshot;
 use std::collections::BTreeMap;
 use std::io::Write as _;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
 
@@ -302,6 +303,7 @@ impl Notifier for BroadcastNotifier {
 pub(in crate::live_runtime) struct ApiContext {
     pub session: Arc<RuntimeSession>,
     pub stats: Arc<LiveStatsProvider>,
+    pub auction_views: Arc<Mutex<BTreeMap<AccountId, AuctionViewSnapshot>>>,
     pub hub: Arc<DashboardHub>,
     pub halted: Arc<AtomicBool>,
     pub accounts: Vec<AccountId>,
@@ -320,6 +322,7 @@ pub(in crate::live_runtime) struct ApiContext {
 struct ApiState {
     session: Arc<RuntimeSession>,
     stats: Arc<LiveStatsProvider>,
+    auction_views: Arc<Mutex<BTreeMap<AccountId, AuctionViewSnapshot>>>,
     events_tx: broadcast::Sender<LiveEvent>,
     ledger: Arc<LedgerWriter>,
     halted: Arc<AtomicBool>,
@@ -359,6 +362,7 @@ pub(in crate::live_runtime) fn maybe_spawn_server(
     let state = ApiState {
         session: ctx.session,
         stats: ctx.stats,
+        auction_views: ctx.auction_views,
         events_tx: ctx.hub.events_tx(),
         ledger: Arc::new(LedgerWriter::new(ctx.state_base_dir.join(LEDGER_FILE))),
         halted: ctx.halted,
@@ -387,6 +391,8 @@ async fn serve(state: ApiState, port: u16) -> anyhow::Result<()> {
         .route("/v1/status", get(status))
         .route("/v1/accounts", get(accounts))
         .route("/v1/accounts/{ign}/queue", get(account_queue))
+        .route("/v1/accounts/{ign}/inventory", get(account_inventory))
+        .route("/v1/accounts/{ign}/auctions", get(account_auctions))
         .route("/v1/profit", get(profit_global))
         .route("/v1/profit/{ign}", get(profit_account))
         .route("/v1/profit/{ign}/series", get(profit_series))
@@ -562,6 +568,62 @@ async fn accounts(State(state): State<ApiState>) -> Json<Value> {
         "connectedCount": connected_count,
         "accounts": list,
     }))
+}
+
+/// Live inventory for an account. For the azalea runtime this is a passive read
+/// of the already-synced in-memory inventory — it does not open a GUI or move
+/// the player — so it is safe to call on demand.
+async fn account_inventory(
+    State(state): State<ApiState>,
+    AxumPath(ign): AxumPath<String>,
+) -> Response {
+    let Some(account) = AccountId::new(ign.trim()) else {
+        return json_error(StatusCode::BAD_REQUEST, "bad_account", "invalid account name");
+    };
+    match state.session.inventory_snapshot(&account).await {
+        Ok(snapshot) => Json(json!({
+            "ign": account.as_str(),
+            "items": snapshot.items,
+        }))
+        .into_response(),
+        Err(error) => json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "inventory_unavailable",
+            error.to_string(),
+        ),
+    }
+}
+
+/// The account's auctions (active / sold-to-collect / expired), served from the
+/// snapshot the bot captures whenever it opens Manage Auctions during
+/// reconciliation. Never navigates the GUI itself; `observedAtMs` is null until
+/// the menu has been seen at least once so the UI can show staleness.
+async fn account_auctions(
+    State(state): State<ApiState>,
+    AxumPath(ign): AxumPath<String>,
+) -> Response {
+    let Some(account) = AccountId::new(ign.trim()) else {
+        return json_error(StatusCode::BAD_REQUEST, "bad_account", "invalid account name");
+    };
+    let snapshot = state
+        .auction_views
+        .lock()
+        .ok()
+        .and_then(|views| views.get(&account).cloned());
+    match snapshot {
+        Some(snapshot) => Json(json!({
+            "ign": account.as_str(),
+            "observedAtMs": snapshot.observed_at_ms,
+            "entries": snapshot.entries,
+        }))
+        .into_response(),
+        None => Json(json!({
+            "ign": account.as_str(),
+            "observedAtMs": Value::Null,
+            "entries": Vec::<Value>::new(),
+        }))
+        .into_response(),
+    }
 }
 
 async fn account_queue(State(state): State<ApiState>, AxumPath(ign): AxumPath<String>) -> Response {

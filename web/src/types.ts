@@ -123,6 +123,36 @@ export interface QueueEntry {
 
 export interface QueueResponse { ign: string; queue: QueueEntry[]; bidData?: any; }
 
+export interface InventoryItem {
+  uuid: string | null;
+  itemName: string;
+  lore: string[];
+  price: number | null;
+  tag: string | null;
+  slot: number | null;
+  inHotbar: boolean;
+}
+
+export interface InventoryResponse { ign: string; items: InventoryItem[]; }
+
+export type AuctionStatus = "active" | "sold" | "expired";
+
+export interface AuctionEntry {
+  itemUuid: string | null;
+  auctionId: string | null;
+  name: string | null;
+  status: AuctionStatus;
+  price: number | null;
+  endsIn: string | null;
+  buyer: string | null;
+}
+
+export interface AuctionsResponse {
+  ign: string;
+  observedAtMs: number | null;
+  entries: AuctionEntry[];
+}
+
 export interface CommandChoice { name: string; value: string; }
 export interface CommandOption {
   name: string;

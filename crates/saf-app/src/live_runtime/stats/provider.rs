@@ -242,6 +242,14 @@ impl LiveStatsProvider {
         Ok(())
     }
 
+    /// The most recently observed purse balance for an account, parsed from the
+    /// in-game scoreboard. `None` until a scoreboard with a purse line has been
+    /// seen. Used by the market driver to avoid attempting auction listings whose
+    /// creation fee the account cannot afford.
+    pub(in crate::live_runtime) fn current_purse(&self, account: &AccountId) -> Option<f64> {
+        self.purses.lock().ok()?.get(account).copied()
+    }
+
     #[cfg(feature = "live-cofl")]
     pub(in crate::live_runtime) fn latest_scoreboard(
         &self,

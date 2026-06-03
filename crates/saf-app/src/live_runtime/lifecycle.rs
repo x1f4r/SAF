@@ -142,6 +142,7 @@ impl LiveRuntime {
         let minecraft_clients = managed_minecraft.clients.clone();
         let managed_minecraft_handles = managed_minecraft.handles.clone();
         let active_windows = Arc::new(Mutex::new(BTreeMap::new()));
+        let auction_views = Arc::new(Mutex::new(BTreeMap::new()));
         let deferred_minecraft_events = Arc::new(Mutex::new(BTreeMap::new()));
         let locraw_delay = env_duration_ms("SAF_LOCRAW_DELAY_MS", DEFAULT_LOCRAW_DELAY_MS);
         let bad_mod_backoff = env_duration_ms(
@@ -328,6 +329,7 @@ impl LiveRuntime {
                 super::dashboard::maybe_spawn_server(super::dashboard::ApiContext {
                     session: session.clone(),
                     stats: stats.clone(),
+                    auction_views: auction_views.clone(),
                     hub: hub.clone(),
                     halted: halted.clone(),
                     accounts: accounts.clone(),
@@ -372,6 +374,7 @@ impl LiveRuntime {
             managed_minecraft: managed_minecraft_handles,
             minecraft_ready_accounts: BTreeSet::new(),
             active_windows,
+            auction_views: auction_views.clone(),
             active_window_received_at: Mutex::new(BTreeMap::new()),
             active_window_observed_at: Mutex::new(BTreeMap::new()),
             market_settle_jitter: Mutex::new(BTreeMap::new()),
@@ -385,8 +388,10 @@ impl LiveRuntime {
             bank_cooldowns,
             pending_market_steps: BTreeMap::new(),
             pending_open_auction_retries: BTreeMap::new(),
+            stale_transition_strikes: BTreeMap::new(),
             pending_missing_listing_inventory_retries: BTreeMap::new(),
             pending_listing_price_mismatch_retries: BTreeMap::new(),
+            pending_unaffordable_listing_retries: BTreeMap::new(),
             deferred_queue_entries: Vec::new(),
             pending_purchase_relists: Vec::new(),
             pending_transfer_followups: Vec::new(),

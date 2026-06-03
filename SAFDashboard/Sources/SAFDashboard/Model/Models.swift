@@ -169,6 +169,60 @@ struct QueueEntry: Codable, Equatable, Identifiable {
 
 struct QueueResponse: Codable { var ign: String; var queue: [QueueEntry]; var bidData: JSONValue? }
 
+// MARK: - Inventory
+
+struct InventoryItem: Codable, Equatable, Identifiable {
+    var uuid: String?
+    var itemName: String
+    var lore: [String]
+    var price: Double?
+    var tag: String?
+    var slot: Int?
+    var inHotbar: Bool
+
+    var id: String { uuid ?? "\(slot.map(String.init(describing:)) ?? "?")-\(itemName)" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        uuid = try c.decodeIfPresent(String.self, forKey: .uuid)
+        itemName = try c.decodeIfPresent(String.self, forKey: .itemName) ?? "Unknown item"
+        lore = try c.decodeIfPresent([String].self, forKey: .lore) ?? []
+        price = try c.decodeIfPresent(Double.self, forKey: .price)
+        tag = try c.decodeIfPresent(String.self, forKey: .tag)
+        slot = try c.decodeIfPresent(Int.self, forKey: .slot)
+        inHotbar = try c.decodeIfPresent(Bool.self, forKey: .inHotbar) ?? false
+    }
+}
+
+struct InventoryResponse: Codable { var ign: String; var items: [InventoryItem] }
+
+// MARK: - Auctions
+
+struct AuctionEntry: Codable, Equatable, Identifiable {
+    var itemUuid: String?
+    var auctionId: String?
+    var name: String?
+    var status: String
+    var price: Double?
+    var endsIn: String?
+    var buyer: String?
+
+    var id: String { auctionId ?? itemUuid ?? "\(status)-\(name ?? "?")-\(price.map(String.init(describing:)) ?? "?")" }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        itemUuid = try c.decodeIfPresent(String.self, forKey: .itemUuid)
+        auctionId = try c.decodeIfPresent(String.self, forKey: .auctionId)
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "active"
+        price = try c.decodeIfPresent(Double.self, forKey: .price)
+        endsIn = try c.decodeIfPresent(String.self, forKey: .endsIn)
+        buyer = try c.decodeIfPresent(String.self, forKey: .buyer)
+    }
+}
+
+struct AuctionsResponse: Codable { var ign: String; var observedAtMs: Double?; var entries: [AuctionEntry] }
+
 // MARK: - Commands
 
 struct CommandDefinition: Codable, Equatable, Identifiable {

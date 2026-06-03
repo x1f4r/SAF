@@ -7,10 +7,11 @@ use super::listing_safety::unsafe_listing_entry_reason;
 use super::notifier::notify_operator_best_effort;
 use super::support::{number_value, string_value, strip_minecraft_color_codes};
 use super::{
-    CLAIM_PURCHASED_OPEN_MAX_ATTEMPTS, LiveRuntime, MARKET_STEP_RETRY_INTERVAL,
-    MARKET_WINDOW_SETTLE_DELAY, MISSING_LISTING_INVENTORY_MAX_ATTEMPTS,
+    CLAIM_PURCHASED_OPEN_MAX_ATTEMPTS, LiveRuntime, MARKET_STEP_NO_PROGRESS_MAX_STRIKES,
+    MARKET_STEP_RETRY_INTERVAL, MARKET_WINDOW_SETTLE_DELAY, MISSING_LISTING_INVENTORY_MAX_ATTEMPTS,
     MISSING_LISTING_INVENTORY_RETRY_DELAY, PendingCompletionKind, PendingListingPriceMismatchRetry,
-    PendingMarketStep, PendingOpenAuctionRetry,
+    PendingMarketStep, PendingOpenAuctionRetry, PendingUnaffordableListingRetry,
+    StaleTransitionStrikes, UNAFFORDABLE_LISTING_RETRY_DELAY,
 };
 use anyhow::Result;
 use saf_core::gui::WindowSnapshot;
@@ -81,6 +82,9 @@ impl LiveRuntime {
             if self.listing_price_mismatch_retry_is_pending(&account, &entry) {
                 continue;
             }
+            if self.unaffordable_listing_retry_is_pending(&account, &entry) {
+                continue;
+            }
             if self.reject_unsafe_listing_entry(&account, &entry).await? {
                 continue;
             }
@@ -119,6 +123,13 @@ impl LiveRuntime {
             }
             if let Some(window) = &window
                 && self
+                    .defer_unaffordable_listing_once(&account, &entry, window)
+                    .await?
+            {
+                continue;
+            }
+            if let Some(window) = &window
+                && self
                     .process_reconcile_window_once(&account, &entry, window)
                     .await?
             {
@@ -137,6 +148,9 @@ impl LiveRuntime {
                     .await?
             {
                 continue;
+            }
+            if let Some(window) = &window {
+                maybe_dump_market_window(&account, &entry, window);
             }
             let Some(step) = self
                 .session
@@ -188,12 +202,15 @@ impl LiveRuntime {
                 {
                     continue;
                 }
-                if self.clear_stale_transition_window_if_needed(
-                    &account,
-                    &entry,
-                    &step.instruction,
-                    step.done,
-                )? {
+                if self
+                    .clear_stale_transition_window_if_needed(
+                        &account,
+                        &entry,
+                        &step.instruction,
+                        step.done,
+                    )
+                    .await?
+                {
                     continue;
                 }
 
@@ -258,6 +275,9 @@ impl LiveRuntime {
             }
 
             if step.done && live_market_actions {
+                // This entry reached a terminal success, so it is healthy: drop
+                // any strikes counted against *it* (not against other entries).
+                self.clear_stale_transition_strikes_for(&account, &entry);
                 self.pending_market_steps.remove(&account);
                 self.complete_queue_entry_or_defer(
                     &account,
@@ -437,6 +457,121 @@ impl LiveRuntime {
             "missing listing inventory retry is waiting"
         );
         true
+    }
+
+    /// True while a listing is being held off because the account could not
+    /// afford its auction creation fee. Lets the hold expire (so coins freed by
+    /// other sales let it proceed) and drops the hold if the queue moved on.
+    fn unaffordable_listing_retry_is_pending(
+        &mut self,
+        account: &AccountId,
+        entry: &QueueEntry,
+    ) -> bool {
+        if !matches!(entry.state, BotState::Listing | BotState::ListingNoName) {
+            return false;
+        }
+        let Some(pending) = self.pending_unaffordable_listing_retries.get(account) else {
+            return false;
+        };
+        // Hold every listing for this account until the cooldown passes; once it
+        // expires, let one re-check through (the gate re-evaluates affordability
+        // and either proceeds or re-arms the hold without re-alerting).
+        pending.retry_at > Instant::now()
+    }
+
+    /// Refuses to attempt an auction listing the account cannot pay the creation
+    /// fee for. Clicking "Create Auction" with too few coins silently fails and
+    /// leaves the window open, which previously drove an endless submit-retry
+    /// loop (server spam / ban risk). Instead we close the window, hold the
+    /// listing for [`UNAFFORDABLE_LISTING_RETRY_DELAY`], and alert the operator
+    /// once so they can add coins or sell something. Returns `true` if it took
+    /// over this poll for the account.
+    pub(super) async fn defer_unaffordable_listing_once(
+        &mut self,
+        account: &AccountId,
+        entry: &QueueEntry,
+        window: &WindowSnapshot,
+    ) -> Result<bool> {
+        if !self.options.market_actions.allows_market_actions()
+            || !matches!(entry.state, BotState::Listing | BotState::ListingNoName)
+            || !is_create_auction_window(window)
+        {
+            return Ok(false);
+        }
+        // Only judge affordability once the listing is in BIN mode, so the fee we
+        // read is the BIN fee we'd actually pay. In regular-auction mode the
+        // planner still has to flip the "Switch to BIN" toggle first.
+        if !window.title.to_ascii_lowercase().contains("bin") {
+            return Ok(false);
+        }
+        let Some(fee) = parse_auction_creation_fee(window) else {
+            return Ok(false);
+        };
+        let Some(purse) = self.stats.current_purse(account) else {
+            return Ok(false);
+        };
+        if purse >= fee {
+            // Affordable again — clear any prior hold and proceed normally.
+            self.pending_unaffordable_listing_retries.remove(account);
+            return Ok(false);
+        }
+
+        let already_notified = self
+            .pending_unaffordable_listing_retries
+            .get(account)
+            .is_some_and(|pending| pending.notified);
+        self.pending_unaffordable_listing_retries.insert(
+            account.clone(),
+            PendingUnaffordableListingRetry {
+                retry_at: Instant::now() + UNAFFORDABLE_LISTING_RETRY_DELAY,
+                notified: true,
+            },
+        );
+        tracing::warn!(
+            account = %account,
+            state = %entry.state.as_str(),
+            priority = entry.priority,
+            purse,
+            creation_fee = fee,
+            retry_after_ms = UNAFFORDABLE_LISTING_RETRY_DELAY.as_millis(),
+            "skipping listing: account cannot afford the auction creation fee"
+        );
+        if let Err(error) = self
+            .session
+            .execute_market_instruction(account, &MarketInstruction::CloseWindow)
+            .await
+        {
+            tracing::warn!(
+                account = %account,
+                error = %error,
+                "failed to close create-auction window after unaffordable listing fee"
+            );
+        }
+        self.clear_active_window_cache(account)?;
+        self.pending_market_steps.remove(account);
+        if !already_notified {
+            let item = listing_entry_item_label(entry);
+            notify_operator_best_effort(
+                self.session.as_ref(),
+                Notification::new(
+                    NotificationKind::Blocked,
+                    "Listing blocked: low purse",
+                    format!(
+                        "`{}` can't list {} — the auction creation fee is {} coins but the purse is only {} coins. Add coins or let other auctions sell, then it will list automatically.",
+                        account.as_str(),
+                        item,
+                        format_coins(fee),
+                        format_coins(purse),
+                    ),
+                    Some(account.clone()),
+                )
+                .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                    account.as_str(),
+                )),
+            )
+            .await;
+        }
+        Ok(true)
     }
 
     pub(super) fn remember_pending_market_step(
@@ -849,7 +984,7 @@ impl LiveRuntime {
         Ok(observed_at.elapsed() < settle)
     }
 
-    pub(super) fn clear_stale_transition_window_if_needed(
+    pub(super) async fn clear_stale_transition_window_if_needed(
         &mut self,
         account: &AccountId,
         entry: &QueueEntry,
@@ -880,16 +1015,235 @@ impl LiveRuntime {
             return Ok(false);
         }
 
+        let strikes = self.register_stale_transition_strike(account, entry);
         tracing::warn!(
             account = %account,
             state = %entry.state.as_str(),
             priority = entry.priority,
             instruction = ?instruction,
+            strikes,
+            max_strikes = MARKET_STEP_NO_PROGRESS_MAX_STRIKES,
             "clearing stale market window after transition click produced no fresh window"
         );
         self.clear_active_window_cache(account)?;
         self.pending_market_steps.remove(account);
+        if strikes >= MARKET_STEP_NO_PROGRESS_MAX_STRIKES {
+            self.abort_stuck_market_step(account, entry).await?;
+        }
         Ok(true)
+    }
+
+    /// Records one no-progress strike for the step currently being driven for
+    /// `account`. Strikes accumulate while the *same* queue entry keeps failing
+    /// to advance; a different entry resets the counter. Successful completion of
+    /// any entry clears it via [`clear_stale_transition_strikes`]. Returns the
+    /// running strike count.
+    fn register_stale_transition_strike(&mut self, account: &AccountId, entry: &QueueEntry) -> u8 {
+        let next = match self.stale_transition_strikes.get(account) {
+            Some(existing) if existing.entry == *entry => existing.count.saturating_add(1),
+            _ => 1,
+        };
+        self.stale_transition_strikes.insert(
+            account.clone(),
+            StaleTransitionStrikes {
+                entry: entry.clone(),
+                count: next,
+            },
+        );
+        next
+    }
+
+    /// Clears the no-progress strike counter for `account`, but only when the
+    /// entry that just completed is the *same* one the strikes were counted
+    /// against. This matters because unrelated bookkeeping entries (e.g. the
+    /// `reconcileAuctions` open/close that runs every cycle) complete constantly
+    /// while a different entry is stuck — wiping strikes on any completion would
+    /// keep resetting the stuck entry to 1 and the kill-switch would never trip.
+    pub(super) fn clear_stale_transition_strikes_for(
+        &mut self,
+        account: &AccountId,
+        completed: &QueueEntry,
+    ) {
+        if self
+            .stale_transition_strikes
+            .get(account)
+            .is_some_and(|strikes| strikes.entry == *completed)
+        {
+            self.stale_transition_strikes.remove(account);
+        }
+    }
+
+    /// Kill-switch: abandons a market step that has produced
+    /// [`MARKET_STEP_NO_PROGRESS_MAX_STRIKES`] consecutive no-progress clicks.
+    /// For listings this queues a status reconcile (so a half-created auction is
+    /// re-detected) before dropping the entry; everything else is simply dropped.
+    /// Either way the operator is alerted and the spammy retry loop stops.
+    async fn abort_stuck_market_step(
+        &mut self,
+        account: &AccountId,
+        entry: &QueueEntry,
+    ) -> Result<()> {
+        self.stale_transition_strikes.remove(account);
+        let is_listing = matches!(entry.state, BotState::Listing | BotState::ListingNoName);
+        tracing::error!(
+            account = %account,
+            state = %entry.state.as_str(),
+            priority = entry.priority,
+            action = ?entry.action,
+            max_strikes = MARKET_STEP_NO_PROGRESS_MAX_STRIKES,
+            "market step made no progress after repeated retries; aborting it to stop server spam"
+        );
+        if is_listing {
+            self.queue_listing_status_reconcile(account, entry).await?;
+        }
+        if let Err(error) = self
+            .session
+            .execute_market_instruction(account, &MarketInstruction::CloseWindow)
+            .await
+        {
+            tracing::warn!(
+                account = %account,
+                error = %error,
+                "failed to close window while aborting a stuck market step"
+            );
+        }
+        self.clear_active_window_cache(account)?;
+        self.pending_market_steps.remove(account);
+        self.complete_queue_entry_or_defer(account, entry, PendingCompletionKind::CountOnly)
+            .await?;
+        let detail = if is_listing {
+            format!(
+                "`{}` could not finish creating an auction after {} attempts (the create-auction window never advanced — the item may be unauctionable or the menu changed). Rust queued a status reconcile and dropped the listing so it stops retrying.",
+                account.as_str(),
+                MARKET_STEP_NO_PROGRESS_MAX_STRIKES
+            )
+        } else {
+            format!(
+                "`{}` made no progress on a `{}` market step after {} attempts and dropped it to stop spamming the server.",
+                account.as_str(),
+                entry.state.as_str(),
+                MARKET_STEP_NO_PROGRESS_MAX_STRIKES
+            )
+        };
+        notify_operator_best_effort(
+            self.session.as_ref(),
+            Notification::new(
+                NotificationKind::Blocked,
+                "Market step aborted",
+                detail,
+                Some(account.clone()),
+            )
+            .with_thumbnail(crate::player_head::account_head_thumbnail_url(
+                account.as_str(),
+            )),
+        )
+        .await;
+        Ok(())
+    }
+}
+
+fn is_create_auction_window(window: &WindowSnapshot) -> bool {
+    let title = window.title.to_ascii_lowercase();
+    title.contains("create") && title.contains("auction")
+}
+
+/// Extracts the auction creation fee (in coins) the create-auction window shows
+/// before you submit. Prefers the explicit "Creation fee:" line (the total the
+/// player pays) and falls back to the auction-house "Extra fee:" cut. Returns
+/// `None` when no fee line is present (e.g. the listing isn't ready to submit).
+fn parse_auction_creation_fee(window: &WindowSnapshot) -> Option<f64> {
+    let lines = || {
+        window.slots.iter().flat_map(|slot| {
+            std::iter::once(slot.display_name.as_str()).chain(slot.lore.iter().map(String::as_str))
+        })
+    };
+    lines()
+        .filter(|line| line.to_ascii_lowercase().contains("creation fee"))
+        .find_map(parse_trailing_coin_amount)
+        .or_else(|| {
+            lines()
+                .filter(|line| {
+                    let lower = line.to_ascii_lowercase();
+                    lower.contains("extra fee") && lower.contains("coin")
+                })
+                .find_map(parse_trailing_coin_amount)
+        })
+}
+
+/// Parses the coin amount that immediately precedes the word "coins" in a lore
+/// line such as `Creation fee: 4,711,200 coins`, ignoring thousands separators.
+fn parse_trailing_coin_amount(line: &str) -> Option<f64> {
+    let lower = line.to_ascii_lowercase();
+    let head = lower.split("coin").next()?;
+    let digits: String = head
+        .chars()
+        .rev()
+        .skip_while(|c| c.is_whitespace())
+        .take_while(|c| c.is_ascii_digit() || *c == ',' || *c == '+')
+        .filter(char::is_ascii_digit)
+        .collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.chars().rev().collect::<String>().parse::<f64>().ok()
+}
+
+fn format_coins(value: f64) -> String {
+    saf_core::numbers::add_commas_to_number(value.round())
+}
+
+/// A short, human-readable label for the item a listing entry is for, used in
+/// operator alerts. Prefers the item name, then the SkyBlock tag, then the UUID.
+fn listing_entry_item_label(entry: &QueueEntry) -> String {
+    string_value(&entry.action, &["itemName", "weirdItemName", "item_name"])
+        .map(|name| strip_minecraft_color_codes(&name))
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .or_else(|| string_value(&entry.action, &["tag"]))
+        .or_else(|| string_value(&entry.action, &["inventory", "inv", "itemUuid", "itemUUID"]))
+        .unwrap_or_else(|| "the queued item".to_string())
+}
+
+/// Diagnostic-only: when `SAF_DEBUG_DUMP_WINDOWS` is set, log the full contents
+/// of an auction/listing GUI window (title + every slot's index, item name,
+/// display name, and lore). This is how we capture the real Create-Auction
+/// layout from the live server to fix the price/duration slot mapping. It is a
+/// no-op unless the env var is present, so it is safe to leave compiled in.
+fn maybe_dump_market_window(account: &AccountId, entry: &QueueEntry, window: &WindowSnapshot) {
+    if std::env::var_os("SAF_DEBUG_DUMP_WINDOWS").is_none() {
+        return;
+    }
+    let title = window.title.to_ascii_lowercase();
+    let listing_related = matches!(entry.state, BotState::Listing | BotState::ListingNoName)
+        || title.contains("auction")
+        || title.contains("create")
+        || title.contains("duration")
+        || title.contains("price");
+    if !listing_related {
+        return;
+    }
+    tracing::info!(
+        account = %account,
+        state = %entry.state.as_str(),
+        window_title = %window.title,
+        slot_count = window.slots.len(),
+        "DEBUG window dump: header"
+    );
+    for slot in &window.slots {
+        tracing::info!(
+            account = %account,
+            slot = slot.slot,
+            item = %slot.name,
+            display_name = %strip_minecraft_color_codes(&slot.display_name),
+            has_uuid = slot.item_uuid.is_some(),
+            lore = %slot
+                .lore
+                .iter()
+                .map(|line| strip_minecraft_color_codes(line))
+                .collect::<Vec<_>>()
+                .join(" | "),
+            "DEBUG window dump: slot"
+        );
     }
 }
 

@@ -4,12 +4,14 @@
 import type {
   AccountsResponse,
   Alert,
+  AuctionsResponse,
   BotStatus,
   CommandDefinition,
   CommandResult,
   ConfigPatchResult,
   ConfigResponse,
   FlipRecord,
+  InventoryResponse,
   ProfitSeries,
   ProfitSummary,
   QueueResponse,
@@ -84,6 +86,10 @@ export const api = {
       `/api/flips?kind=sold&limit=${limit}${account ? `&account=${encodeURIComponent(account)}` : ""}`
     ).then((r) => r.flips),
   queue: (ign: string) => req<QueueResponse>(`/api/accounts/${encodeURIComponent(ign)}/queue`),
+  getInventory: (ign: string) =>
+    req<InventoryResponse>(`/api/accounts/${encodeURIComponent(ign)}/inventory`),
+  getAuctions: (ign: string) =>
+    req<AuctionsResponse>(`/api/accounts/${encodeURIComponent(ign)}/auctions`),
   logs: (lines = 300) => req<{ lines: string[] }>(`/api/logs?lines=${lines}`).then((r) => r.lines),
   alerts: (lines = 120) => req<{ alerts: Alert[] }>(`/api/alerts?lines=${lines}`).then((r) => r.alerts),
   commands: () => req<{ commands: CommandDefinition[] }>("/api/commands").then((r) => r.commands),

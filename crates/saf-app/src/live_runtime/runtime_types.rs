@@ -82,6 +82,18 @@ pub(super) struct PendingOpenAuctionRetry {
     pub(super) attempts: u8,
 }
 
+/// Counts how many times the *same* market step (same queue entry + click
+/// instruction) has fired without the GUI advancing — i.e. the click produced
+/// no fresh window and we cleared a stale one. A run of these is the signature
+/// of a stuck loop (e.g. a create-auction "submit" that never opens the
+/// confirmation), which spams the server and is a ban risk. Tracked per account
+/// so the driver can trip a kill-switch instead of retrying forever.
+#[derive(Clone, Debug)]
+pub(super) struct StaleTransitionStrikes {
+    pub(super) entry: QueueEntry,
+    pub(super) count: u8,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct PendingMissingListingInventoryRetry {
     pub(super) entry: QueueEntry,
@@ -94,6 +106,18 @@ pub(super) struct PendingListingPriceMismatchRetry {
     pub(super) entry: QueueEntry,
     pub(super) retry_at: Instant,
     pub(super) attempts: u8,
+}
+
+/// Records that an account's listings are held off because it could not afford
+/// an auction creation fee. The hold is per-account (the entry representation
+/// varies between reconcile cycles, so keying on a specific entry would let the
+/// hold leak): all of the account's listings wait until `retry_at`, then one
+/// re-check is allowed. `notified` dedupes the operator alert to once per blocked
+/// episode (cleared when the account can afford listings again).
+#[derive(Clone, Debug)]
+pub(super) struct PendingUnaffordableListingRetry {
+    pub(super) retry_at: Instant,
+    pub(super) notified: bool,
 }
 
 #[derive(Clone, Debug)]

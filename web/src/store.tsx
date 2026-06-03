@@ -28,7 +28,7 @@ import type {
 } from "./types";
 
 export type Tab =
-  | "dashboard" | "accounts" | "flips" | "profit"
+  | "dashboard" | "accounts" | "inventory" | "auctions" | "flips" | "profit"
   | "queue" | "logs" | "commands" | "blacklist" | "config" | "diagnostics" | "settings";
 
 export interface DiagEvent {

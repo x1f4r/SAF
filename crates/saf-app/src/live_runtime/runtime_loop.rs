@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use super::inventory_logging::log_inventory_snapshot;
+use super::windows;
 use super::{DryRunMarketAction, LiveRuntime, MARKET_WINDOW_SETTLE_DELAY, RunLiveReport};
 
 impl LiveRuntime {
@@ -198,6 +199,24 @@ impl LiveRuntime {
                 error = %error,
                 "failed to record window stats; caching window snapshot anyway"
             );
+        }
+        // Passively capture the operator's auctions whenever the bot opens the
+        // Manage Auctions menu during reconciliation, so the dashboard auctions
+        // view never has to navigate the GUI itself.
+        if let Some(entries) = windows::manage_auction_entries(&window) {
+            let observed_at_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            if let Ok(mut views) = self.auction_views.lock() {
+                views.insert(
+                    account.clone(),
+                    windows::AuctionViewSnapshot {
+                        observed_at_ms,
+                        entries,
+                    },
+                );
+            }
         }
         let changed = {
             let mut active_windows = self

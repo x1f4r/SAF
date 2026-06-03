@@ -150,6 +150,16 @@ fn plan_create_listing_window(
             format!("prepare listing for {}", selector.item_uuid),
         );
     }
+    // Always relist as a BIN (buy-it-now) auction. If the create-auction GUI is
+    // still in regular-auction mode it exposes a "Switch to BIN" toggle; flip it
+    // before entering price/duration so the listing is created as BIN and the
+    // price field is treated as a fixed price rather than a starting bid.
+    if let Some(slot) = switch_to_bin_slot(window) {
+        return MarketStep::next(
+            MarketInstruction::ClickSlot { slot },
+            "switch create-auction mode to BIN",
+        );
+    }
     if !listing_price_matches(window, price) {
         let Some(slot) = listing_price_slot(window).map(|slot| slot.slot) else {
             return MarketStep::next(MarketInstruction::Noop, "wait for listing price control");
@@ -187,6 +197,21 @@ fn plan_create_listing_window(
         },
         "submit listing",
     )
+}
+
+/// When the create-auction window is in regular (bid) auction mode it shows a
+/// "Switch to BIN" control; this returns that slot so the listing can be flipped
+/// to Buy-It-Now. Returns `None` once the window is already in BIN mode — its
+/// title then contains "BIN" and the toggle instead reads "Switch to Auction".
+fn switch_to_bin_slot(window: &WindowSnapshot) -> Option<usize> {
+    if window.title.to_ascii_lowercase().contains("bin") {
+        return None;
+    }
+    window
+        .slots
+        .iter()
+        .find(|slot| slot.text().to_ascii_lowercase().contains("switch to bin"))
+        .map(|slot| slot.slot)
 }
 
 fn is_confirm_listing_window(window: &WindowSnapshot) -> bool {

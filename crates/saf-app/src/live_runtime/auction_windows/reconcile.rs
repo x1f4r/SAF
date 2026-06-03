@@ -480,7 +480,10 @@ impl LiveRuntime {
         if !self.should_attempt_market_step(account, entry, &instruction) {
             return Ok(true);
         }
-        if self.clear_stale_transition_window_if_needed(account, entry, &instruction, false)? {
+        if self
+            .clear_stale_transition_window_if_needed(account, entry, &instruction, false)
+            .await?
+        {
             tracing::warn!(
                 account = %account,
                 state = %entry.state.as_str(),

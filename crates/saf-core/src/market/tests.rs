@@ -477,6 +477,120 @@ fn listing_workflow_accepts_node_style_singular_duration_label() {
 }
 
 #[test]
+fn listing_workflow_switches_regular_auction_to_bin_before_submitting() {
+    // Captured from the live server: the create-auction GUI opened in regular
+    // (bid) auction mode, so slot 48 reads "Switch to BIN". Even though price and
+    // duration already match, the bot must flip to BIN first rather than submit a
+    // regular auction.
+    let workflow = MarketWorkflow::ListItem {
+        item_uuid: ItemUuid::new("wanted-uuid").unwrap(),
+        price: 94_200_000.0,
+        hours: 48.0,
+    };
+    let window = WindowSnapshot {
+        title: "Create Auction".to_string(),
+        slots: vec![
+            WindowSlot {
+                slot: 13,
+                name: "diamond_chestplate".to_string(),
+                display_name: "Ancient Skeleton Master Chestplate".to_string(),
+                lore: Vec::new(),
+                item_uuid: Some("wanted-uuid".to_string()),
+            },
+            WindowSlot {
+                slot: 29,
+                name: "green_terracotta".to_string(),
+                display_name: "Create Auction".to_string(),
+                lore: vec!["Starting bid: 94,200,000 coins".to_string()],
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 31,
+                name: "powered_rail".to_string(),
+                display_name: "Starting bid: 94,200,000 coins".to_string(),
+                lore: vec!["Price: 94,200,000 coins".to_string()],
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 33,
+                name: "clock".to_string(),
+                display_name: "Duration: 2 Days".to_string(),
+                lore: vec!["Duration: 2 Days".to_string()],
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 48,
+                name: "gold_ingot".to_string(),
+                display_name: "Switch to BIN".to_string(),
+                lore: vec!["(BIN means Buy It Now)".to_string(), "Click to switch!".to_string()],
+                item_uuid: None,
+            },
+        ],
+    };
+
+    assert_eq!(
+        workflow.next_step(Some(&window)).instruction,
+        MarketInstruction::ClickSlot { slot: 48 }
+    );
+}
+
+#[test]
+fn listing_workflow_submits_in_bin_mode_without_switching() {
+    // The BIN-mode window (title contains "BIN", toggle reads "Switch to Auction")
+    // must submit as before — the switch logic must not loop.
+    let workflow = MarketWorkflow::ListItem {
+        item_uuid: ItemUuid::new("wanted-uuid").unwrap(),
+        price: 12_345_678.0,
+        hours: 48.0,
+    };
+    let window = WindowSnapshot {
+        title: "Create BIN Auction".to_string(),
+        slots: vec![
+            WindowSlot {
+                slot: 13,
+                name: "diamond_sword".to_string(),
+                display_name: "Sword".to_string(),
+                lore: Vec::new(),
+                item_uuid: Some("wanted-uuid".to_string()),
+            },
+            WindowSlot {
+                slot: 29,
+                name: "gold_nugget".to_string(),
+                display_name: "Create BIN Auction".to_string(),
+                lore: Vec::new(),
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 31,
+                name: "gold_ingot".to_string(),
+                display_name: "Auction Price".to_string(),
+                lore: vec!["Price: 12,345,678 coins".to_string()],
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 33,
+                name: "clock".to_string(),
+                display_name: "Auction Duration".to_string(),
+                lore: vec!["Duration: 2 Days".to_string()],
+                item_uuid: None,
+            },
+            WindowSlot {
+                slot: 48,
+                name: "gold_ingot".to_string(),
+                display_name: "Switch to Auction".to_string(),
+                lore: vec!["Click to switch!".to_string()],
+                item_uuid: None,
+            },
+        ],
+    };
+
+    assert_eq!(
+        workflow.next_step(Some(&window)).instruction,
+        MarketInstruction::ClickSlot { slot: 29 }
+    );
+}
+
+#[test]
 fn listing_workflow_uses_inventory_field_for_claimed_purchase() {
     let entry = QueueEntry {
         action: json!({

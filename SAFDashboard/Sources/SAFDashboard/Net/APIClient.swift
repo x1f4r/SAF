@@ -96,6 +96,12 @@ struct APIClient {
     func queue(ign: String) async throws -> QueueResponse {
         try await send(request("v1/accounts/\(ign)/queue"), as: QueueResponse.self)
     }
+    func inventory(ign: String) async throws -> InventoryResponse {
+        try await send(request("v1/accounts/\(ign)/inventory"), as: InventoryResponse.self)
+    }
+    func auctions(ign: String) async throws -> AuctionsResponse {
+        try await send(request("v1/accounts/\(ign)/auctions"), as: AuctionsResponse.self)
+    }
     func logs(lines: Int = 250) async throws -> [String] {
         struct R: Codable { var lines: [String] }
         return try await send(request("v1/logs?lines=\(lines)"), as: R.self).lines

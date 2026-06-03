@@ -52,6 +52,8 @@ struct MainShell: View {
                 switch store.tab {
                 case .dashboard: DashboardView()
                 case .accounts: AccountsView()
+                case .inventory: InventoryView()
+                case .auctions: AuctionsView()
                 case .flips: FlipsView()
                 case .profit: ProfitView()
                 case .queue: QueueView()

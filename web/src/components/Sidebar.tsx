@@ -5,6 +5,8 @@ import { StatusDot } from "./UI";
 const TABS: { id: Tab; title: string; icon: string }[] = [
   { id: "dashboard", title: "Dashboard", icon: "dashboard" },
   { id: "accounts", title: "Accounts", icon: "accounts" },
+  { id: "inventory", title: "Inventory", icon: "cube" },
+  { id: "auctions", title: "Auctions", icon: "tag" },
   { id: "flips", title: "Flips", icon: "flips" },
   { id: "profit", title: "Profit", icon: "profit" },
   { id: "queue", title: "Queue", icon: "queue" },

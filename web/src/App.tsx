@@ -3,6 +3,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Toast } from "./components/Toast";
 import { useStore, type Tab } from "./store";
 import { AccountsView } from "./views/AccountsView";
+import { AuctionsView } from "./views/AuctionsView";
 import { BlacklistView } from "./views/BlacklistView";
 import { CommandsView } from "./views/CommandsView";
 import { ConfigView } from "./views/ConfigView";
@@ -10,6 +11,7 @@ import { ConnectionView } from "./views/ConnectionView";
 import { DashboardView } from "./views/DashboardView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
 import { FlipsView } from "./views/FlipsView";
+import { InventoryView } from "./views/InventoryView";
 import { LoginView } from "./views/LoginView";
 import { LogsView } from "./views/LogsView";
 import { ProfitView } from "./views/ProfitView";
@@ -18,6 +20,8 @@ import { QueueView } from "./views/QueueView";
 const VIEWS: Record<Tab, () => JSX.Element> = {
   dashboard: DashboardView,
   accounts: AccountsView,
+  inventory: InventoryView,
+  auctions: AuctionsView,
   flips: FlipsView,
   profit: ProfitView,
   queue: QueueView,
@@ -29,7 +33,7 @@ const VIEWS: Record<Tab, () => JSX.Element> = {
   settings: ConnectionView,
 };
 
-const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "config", "blacklist", "diagnostics", "settings"];
+const ORDER: Tab[] = ["dashboard", "accounts", "inventory", "auctions", "flips", "profit", "queue", "logs", "commands", "config", "blacklist", "diagnostics", "settings"];
 
 export function App() {
   const store = useStore();

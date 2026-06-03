@@ -11,12 +11,14 @@ final class AppStore: ObservableObject {
 
     // Navigation
     enum Tab: String, CaseIterable, Identifiable {
-        case dashboard, accounts, flips, profit, queue, logs, commands, config, blacklist, diagnostics, settings
+        case dashboard, accounts, inventory, auctions, flips, profit, queue, logs, commands, config, blacklist, diagnostics, settings
         var id: String { rawValue }
         var title: String {
             switch self {
             case .dashboard: return "Dashboard"
             case .accounts: return "Accounts"
+            case .inventory: return "Inventory"
+            case .auctions: return "Auctions"
             case .flips: return "Flips"
             case .profit: return "Profit"
             case .queue: return "Queue"
@@ -32,6 +34,8 @@ final class AppStore: ObservableObject {
             switch self {
             case .dashboard: return "square.grid.2x2.fill"
             case .accounts: return "person.2.fill"
+            case .inventory: return "shippingbox.fill"
+            case .auctions: return "tag.fill"
             case .flips: return "arrow.left.arrow.right"
             case .profit: return "chart.line.uptrend.xyaxis"
             case .queue: return "list.bullet.rectangle.fill"
