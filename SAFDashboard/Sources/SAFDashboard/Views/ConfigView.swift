@@ -35,6 +35,12 @@ struct ConfigView: View {
     @State private var roundTo = ""
     @State private var visitFriend = false
     @State private var webhookFormat = ""
+    // skip.* thresholds (a nested object): edited here, resent whole on save so
+    // the other skip fields are preserved. These also set the Cofl flip safety
+    // floor on the bot.
+    @State private var skipMinProfit = ""
+    @State private var skipMinPrice = ""
+    @State private var skipProfitPercentage = ""
 
     var body: some View {
         Page(spacing: 18) {
@@ -57,6 +63,7 @@ struct ConfigView: View {
                 EmptyState(icon: "slider.horizontal.3", text: store.reachable ? "No config loaded." : "Connect to the bot to edit its config.").frame(height: 240)
             } else {
                 behaviorCard
+                thresholdsCard
                 timingCard
                 listingCard
                 notificationsCard
@@ -97,6 +104,25 @@ struct ConfigView: View {
                 toggleRow("Use cookie", "Keep the booster cookie active.", $useCookie, icon: "birthday.cake.fill")
                 toggleRow("Angry-coop prevention", "Back off when a co-op partner is active.", $angryCoopPrevention, icon: "person.2.slash")
                 toggleRow("Visit friend", "Visit a friend's island when needed.", $visitFriend, icon: "figure.walk")
+            }
+        }
+    }
+
+    private var thresholdsCard: some View {
+        Card(padding: 22) {
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader("Flip thresholds", systemImage: "line.3.horizontal.decrease.circle.fill")
+                HStack(spacing: 14) {
+                    FormField(label: "Min profit", systemImage: "dollarsign.circle", hint: "Skip flips below this profit (e.g. 10m). Also sets the bot's Cofl safety floor.") {
+                        TextField("100k", text: $skipMinProfit)
+                    }
+                    FormField(label: "Min profit %", systemImage: "percent", hint: "Skip flips below this margin.") {
+                        TextField("5", text: $skipProfitPercentage)
+                    }
+                    FormField(label: "Min price", systemImage: "tag", hint: "Skip items cheaper than this.") {
+                        TextField("50k", text: $skipMinPrice)
+                    }
+                }
             }
         }
     }
@@ -212,6 +238,11 @@ struct ConfigView: View {
         roundTo = numberString(c["roundTo"])
         visitFriend = bool(c["visitFriend"])
         webhookFormat = string(c["webhookFormat"])
+        if case .object(let skip)? = c["skip"] {
+            skipMinProfit = scalarString(skip["minProfit"])
+            skipMinPrice = scalarString(skip["minPrice"])
+            skipProfitPercentage = scalarString(skip["profitPercentage"])
+        }
     }
 
     /// Build the patch from only the fields whose edited value differs from the
@@ -239,6 +270,7 @@ struct ConfigView: View {
         diffNumber("listHours", listHours, into: &patch)
         diffNumber("clickDelay", clickDelay, into: &patch)
         diffNumber("roundTo", roundTo, into: &patch)
+        diffSkip(into: &patch)
 
         let ok = await store.saveConfig(patch)
         if ok && !patch.isEmpty {
@@ -264,6 +296,22 @@ struct ConfigView: View {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard numberString(original[key]) != trimmed else { return }
         if let n = Double(trimmed) { patch[key] = .number(n) }
+    }
+    /// Skip thresholds live in a nested object. PATCH merges top-level keys
+    /// wholesale, so when any of the three change, resend the whole `skip`
+    /// object with the other fields (always, skins, userFinder) preserved.
+    private func diffSkip(into patch: inout [String: JSONValue]) {
+        var orig: [String: JSONValue] = [:]
+        if case .object(let s)? = original["skip"] { orig = s }
+        let changed = scalarString(orig["minProfit"]) != skipMinProfit
+            || scalarString(orig["minPrice"]) != skipMinPrice
+            || scalarString(orig["profitPercentage"]) != skipProfitPercentage
+        guard changed else { return }
+        var next = orig
+        next["minProfit"] = .string(skipMinProfit)
+        next["minPrice"] = .string(skipMinPrice)
+        next["profitPercentage"] = .string(skipProfitPercentage)
+        patch["skip"] = .object(next)
     }
 
     // MARK: Scalar extraction

@@ -45,7 +45,7 @@ pub(super) async fn add_cofl_clients(
 
     let mut streams = Vec::new();
     let session_id = cofl_session(config);
-    let flip_safety = cofl_flip_safety_from_env();
+    let flip_safety = cofl_flip_safety(config);
     for account in accounts {
         let Some(link) = cofl_socket_link(config, account) else {
             continue;
@@ -94,7 +94,7 @@ fn allow_cofl_execute_chat() -> bool {
     std::env::var("SAF_ALLOW_COFL_EXECUTE_CHAT").is_ok_and(|value| value.trim() == "1")
 }
 
-fn cofl_flip_safety_from_env() -> Option<CoflFlipSafety> {
+fn cofl_flip_safety(config: &SafConfig) -> Option<CoflFlipSafety> {
     let guard_env = std::env::var("SAF_COFL_SETTINGS_GUARD").ok();
     if cfg!(test) && guard_env.is_none() {
         return None;
@@ -108,8 +108,14 @@ fn cofl_flip_safety_from_env() -> Option<CoflFlipSafety> {
         return None;
     }
 
-    let min_profit = cofl_safety_number("SAF_COFL_MIN_PROFIT_FLOOR", "20m")?;
-    let min_profit_percent = cofl_safety_number("SAF_COFL_MIN_PROFIT_PERCENT_FLOOR", "20")?;
+    // Default the safety floor to the operator's normal min-profit thresholds
+    // (config `skip.minProfit` / `skip.profitPercentage`, editable from the
+    // dashboard Config tab). The env vars remain optional hard overrides.
+    let default_min_profit = config_number_text(&config.skip.min_profit, "20m");
+    let default_min_profit_percent = config_number_text(&config.skip.profit_percentage, "20");
+    let min_profit = cofl_safety_number("SAF_COFL_MIN_PROFIT_FLOOR", &default_min_profit)?;
+    let min_profit_percent =
+        cofl_safety_number("SAF_COFL_MIN_PROFIT_PERCENT_FLOOR", &default_min_profit_percent)?;
     let safety = CoflFlipSafety::new(min_profit, min_profit_percent);
     if let Some(safety) = safety {
         tracing::info!(
@@ -119,6 +125,16 @@ fn cofl_flip_safety_from_env() -> Option<CoflFlipSafety> {
         );
     }
     safety
+}
+
+/// Renders a config `Value` (a string like `"10m"` or a bare number) into the
+/// text form `cofl_safety_number` parses, falling back when it is null/empty.
+fn config_number_text(value: &serde_json::Value, fallback: &str) -> String {
+    match value {
+        serde_json::Value::String(text) if !text.trim().is_empty() => text.clone(),
+        serde_json::Value::Number(number) => number.to_string(),
+        _ => fallback.to_string(),
+    }
 }
 
 fn cofl_safety_number(name: &str, default_value: &str) -> Option<f64> {
