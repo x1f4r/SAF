@@ -48,7 +48,10 @@ struct ConnectionView: View {
                             GhostButton(title: "Restart bot", systemImage: "arrow.counterclockwise", role: .destructive) {
                                 showRestartConfirm = true
                             }
-                            .disabled(!store.reachable || !store.profile.usesTunnel)
+                            // Runs over SSH directly, so it only needs an SSH destination —
+                            // not a reachable API. This is what lets it COLD-START a stopped
+                            // bot (tunnel up, API down), which is exactly when you need it.
+                            .disabled(!store.profile.usesTunnel)
                             GhostButton(title: "Disconnect", systemImage: "xmark.circle", role: .destructive) { store.disconnect() }
                             Spacer()
                             PrimaryButton(title: "Save & Reconnect", systemImage: "arrow.clockwise") {
