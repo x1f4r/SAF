@@ -249,6 +249,19 @@ impl BotRuntime {
             "ping" | "get_ping" => Ok(RuntimeDirective::ShowPing { account }),
             "queue" | "get_queue" => Ok(RuntimeDirective::ShowQueue { account }),
             "clear_queue" => Ok(RuntimeDirective::ClearQueue { account }),
+            "cancel_queue" => {
+                let index = message
+                    .split_whitespace()
+                    .next()
+                    .ok_or_else(|| {
+                        RuntimeError::Invalid("Queue entry index is required.".to_string())
+                    })?
+                    .parse::<usize>()
+                    .map_err(|_| {
+                        RuntimeError::Invalid("Queue entry index must be a number.".to_string())
+                    })?;
+                Ok(RuntimeDirective::CancelQueueEntry { account, index })
+            }
             "clear_data" => Ok(RuntimeDirective::ClearData { account }),
             "blacklist" => Ok(RuntimeDirective::BlacklistCommand {
                 account,

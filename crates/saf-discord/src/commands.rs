@@ -145,6 +145,11 @@ pub fn command_definitions() -> Vec<CommandDefinition> {
         ),
         cmd("clear_queue", "Clear queued actions.", vec![target.clone()]),
         cmd(
+            "cancel_queue",
+            "Cancel a single queued action by its index.",
+            vec![target.clone(), CommandOption::integer("index", true)],
+        ),
+        cmd(
             "clear_data",
             "Clear saved queue/bid data.",
             vec![target.clone()],

@@ -85,6 +85,9 @@ pub(in crate::live_runtime) fn format_planned_directive(directive: &RuntimeDirec
         RuntimeDirective::ClearQueue { account } => format!(
             "Queue `{account}`\nNo live queue provider is registered, so Rust cannot clear this queue."
         ),
+        RuntimeDirective::CancelQueueEntry { account, index } => format!(
+            "Queue `{account}`\nNo live queue provider is registered, so Rust cannot cancel queue entry {index}."
+        ),
         RuntimeDirective::ClearAllQueues => {
             "Queues\nNo live queue provider is registered, so Rust cannot clear configured account queues."
                 .to_string()

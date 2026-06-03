@@ -7,6 +7,7 @@ struct ConnectionView: View {
     @State private var loaded = false
     @State private var testing = false
     @State private var testResult: (ok: Bool, message: String)?
+    @State private var showRestartConfirm = false
 
     var body: some View {
         Page(spacing: 18) {
@@ -44,6 +45,10 @@ struct ConnectionView: View {
                         }
                         HStack(spacing: 12) {
                             GhostButton(title: testing ? "Testing…" : "Test", systemImage: "bolt.horizontal.fill") { runTest() }
+                            GhostButton(title: "Restart bot", systemImage: "arrow.counterclockwise", role: .destructive) {
+                                showRestartConfirm = true
+                            }
+                            .disabled(!store.reachable || !store.profile.usesTunnel)
                             GhostButton(title: "Disconnect", systemImage: "xmark.circle", role: .destructive) { store.disconnect() }
                             Spacer()
                             PrimaryButton(title: "Save & Reconnect", systemImage: "arrow.clockwise") {
@@ -61,6 +66,12 @@ struct ConnectionView: View {
         }
         .onAppear {
             if !loaded { profile = store.profile; token = store.token; loaded = true }
+        }
+        .alert("Restart bot?", isPresented: $showRestartConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Restart", role: .destructive) { Task { await store.restart() } }
+        } message: {
+            Text("This runs the restart command on the host over SSH. The bot will go offline for a few seconds while it bounces.")
         }
     }
 

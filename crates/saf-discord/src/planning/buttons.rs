@@ -31,6 +31,16 @@ pub fn plan_button(custom_id: &str) -> Result<Option<DiscordCommandPlan>, Discor
             "queue",
             std::iter::empty::<&str>(),
         )))),
+        ["saf", "cancelQueueEntry", username, index] => {
+            index
+                .parse::<usize>()
+                .map_err(|_| DiscordCommandPlanError::UnknownCommand(custom_id.to_string()))?;
+            Ok(Some(local_terminal(targeted_line(
+                Some(username),
+                "cancel_queue",
+                [*index],
+            ))))
+        }
         ["saf", "inventory", username] => Ok(Some(local_terminal(targeted_line(
             Some(username),
             "inventory",

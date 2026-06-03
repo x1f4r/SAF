@@ -117,6 +117,18 @@ pub(in crate::live_runtime::discord_gateway) fn format_runtime_outcome(
         RuntimeOutcome::QueueCleared { account, removed } => {
             format!("Cleared {removed} queued action(s) for `{account}`.")
         }
+        RuntimeOutcome::QueueEntryCancelled {
+            account,
+            entry,
+            index,
+        } => match entry {
+            Some(entry) => format!(
+                "Cancelled queue entry {index} for `{account}` ({} priority {}).",
+                entry.state.as_str(),
+                entry.priority
+            ),
+            None => format!("No queue entry at index {index} for `{account}`."),
+        },
         RuntimeOutcome::QueuesCleared { accounts } => {
             let total = accounts.iter().map(|entry| entry.removed).sum::<usize>();
             let mut lines = vec![format!("Cleared {total} queued action(s).")];
@@ -304,6 +316,9 @@ fn outcome_card_meta(
         ),
         RuntimeOutcome::QueueCleared { account, .. } => {
             (NotificationKind::Started, "Queue cleared", Some(account))
+        }
+        RuntimeOutcome::QueueEntryCancelled { account, .. } => {
+            (NotificationKind::Started, "Queue entry cancelled", Some(account))
         }
         RuntimeOutcome::QueuesCleared { .. } => (NotificationKind::Started, "Queues cleared", None),
         RuntimeOutcome::SavedDataCleared { account, .. } => (

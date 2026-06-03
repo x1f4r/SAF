@@ -121,7 +121,8 @@ pub(super) async fn discord_reply_for_outcome(outcome: &RuntimeOutcome) -> Disco
             }
             reply.set_components(inventory_controls(&snapshot.account));
         }
-        RuntimeOutcome::QueueSnapshot { account, .. } => {
+        RuntimeOutcome::QueueSnapshot { account, .. }
+        | RuntimeOutcome::QueueEntryCancelled { account, .. } => {
             reply.set_components(queue_controls(account));
         }
         RuntimeOutcome::BlacklistApplied { result, .. }
@@ -209,6 +210,7 @@ fn directive_account(directive: &RuntimeDirective) -> Option<&AccountId> {
         | RuntimeDirective::ShowPing { account: from }
         | RuntimeDirective::ShowQueue { account: from }
         | RuntimeDirective::ClearQueue { account: from }
+        | RuntimeDirective::CancelQueueEntry { account: from, .. }
         | RuntimeDirective::ClearData { account: from }
         | RuntimeDirective::BlacklistCommand { account: from, .. }
         | RuntimeDirective::CheckBids { account: from }

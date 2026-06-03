@@ -99,6 +99,28 @@ impl QueueStore for FakeQueueStore {
         entries.retain(|(entry_account, _, _, _)| entry_account != account);
         Ok(before - entries.len())
     }
+
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<crate::QueueEntry>, PortError> {
+        let mut entries = self.entries.lock().unwrap();
+        let position = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, (entry_account, _, _, _))| entry_account == account)
+            .nth(index)
+            .map(|(position, _)| position);
+        Ok(position.map(|position| {
+            let (_, action, state, priority) = entries.remove(position);
+            crate::QueueEntry {
+                action,
+                state,
+                priority,
+            }
+        }))
+    }
 }
 
 #[derive(Default)]
@@ -487,6 +509,17 @@ fn plans_cookie_command_for_account() {
         runtime().plan_terminal_line("MainAlt cookie").unwrap(),
         RuntimeDirective::Cookie {
             account: AccountId::new("MainAlt").unwrap(),
+        }
+    );
+}
+
+#[test]
+fn plans_cancel_queue_entry_for_account() {
+    assert_eq!(
+        runtime().plan_terminal_line("MainAlt cancel_queue 2").unwrap(),
+        RuntimeDirective::CancelQueueEntry {
+            account: AccountId::new("MainAlt").unwrap(),
+            index: 2,
         }
     );
 }

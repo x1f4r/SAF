@@ -106,6 +106,22 @@ impl QueueStore for FileQueueStore {
             .map_err(|error| PortError::Failed(error.to_string()))?;
         Ok(removed)
     }
+
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<QueueEntry>, PortError> {
+        let mut store = StateStore::open(&self.base_dir, account.as_str())
+            .map_err(|error| PortError::Failed(error.to_string()))?;
+        let removed = store.remove_at(index);
+        if removed.is_some() {
+            store
+                .save_all()
+                .map_err(|error| PortError::Failed(error.to_string()))?;
+        }
+        Ok(removed)
+    }
 }
 
 #[async_trait]

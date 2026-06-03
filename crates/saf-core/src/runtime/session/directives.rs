@@ -156,6 +156,14 @@ impl RuntimeSession {
                     removed,
                 })
             }
+            RuntimeDirective::CancelQueueEntry { account, index } => {
+                let entry = self.queue_store(account)?.remove_at(account, *index).await?;
+                Ok(RuntimeOutcome::QueueEntryCancelled {
+                    account: account.clone(),
+                    entry,
+                    index: *index,
+                })
+            }
             RuntimeDirective::ClearAllQueues => {
                 let mut accounts = Vec::new();
                 for account in self.all_configured_accounts()? {

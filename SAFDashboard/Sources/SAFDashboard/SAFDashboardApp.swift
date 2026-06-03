@@ -57,6 +57,7 @@ struct MainShell: View {
                 case .queue: QueueView()
                 case .logs: LogsView()
                 case .commands: CommandsView()
+                case .config: ConfigView()
                 case .blacklist: BlacklistView()
                 case .diagnostics: DiagnosticsView()
                 case .settings: ConnectionView()

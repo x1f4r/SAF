@@ -702,6 +702,10 @@ fn live_discord_planned_directive_messages_are_specific() {
         RuntimeDirective::ClearQueue {
             account: account.clone(),
         },
+        RuntimeDirective::CancelQueueEntry {
+            account: account.clone(),
+            index: 1,
+        },
         RuntimeDirective::ClearAllQueues,
         RuntimeDirective::ClearData {
             account: account.clone(),

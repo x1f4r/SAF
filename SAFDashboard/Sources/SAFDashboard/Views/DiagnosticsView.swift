@@ -19,6 +19,7 @@ struct DiagnosticsView: View {
         Page(spacing: 22) {
             PageHeader("Diagnostics", subtitle: "Connection health, bot alerts, and a troubleshooting log.") {
                 HStack(spacing: 10) {
+                    GhostButton(title: "Open logs folder", systemImage: "folder") { openLogsFolder() }
                     GhostButton(title: "Copy report", systemImage: "doc.on.doc") { copyReport() }
                     GhostButton(title: "Save report…", systemImage: "square.and.arrow.down") { saveReport() }
                 }
@@ -89,6 +90,10 @@ struct DiagnosticsView: View {
         lines += ["", "## Bot alerts"]
         lines += store.alerts.map { "\($0.ts) \($0.level.uppercased()) \($0.message)" }
         return lines.joined(separator: "\n")
+    }
+
+    private func openLogsFolder() {
+        NSWorkspace.shared.open(DiagnosticsLogger.shared.logsDirectory)
     }
 
     private func copyReport() {

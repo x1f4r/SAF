@@ -7,6 +7,8 @@ import type {
   BotStatus,
   CommandDefinition,
   CommandResult,
+  ConfigPatchResult,
+  ConfigResponse,
   FlipRecord,
   ProfitSeries,
   ProfitSummary,
@@ -17,9 +19,14 @@ import type {
 
 export class APIError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  // Structured error fields the bot returns (e.g. forbidden_fields → forbidden[]).
+  code?: string;
+  forbidden?: string[];
+  constructor(status: number, message: string, extra?: { code?: string; forbidden?: string[] }) {
     super(message);
     this.status = status;
+    this.code = extra?.code;
+    this.forbidden = extra?.forbidden;
   }
 }
 
@@ -27,13 +34,15 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, { credentials: "include", ...init });
   if (!res.ok) {
     let msg = res.statusText;
+    let extra: { code?: string; forbidden?: string[] } | undefined;
     try {
       const body = await res.json();
       msg = body.message || body.error || msg;
+      extra = { code: body.error, forbidden: body.forbidden };
     } catch {
       /* ignore */
     }
-    throw new APIError(res.status, msg);
+    throw new APIError(res.status, msg, extra);
   }
   return (await res.json()) as T;
 }
@@ -43,6 +52,14 @@ function post(path: string, body?: unknown): Promise<CommandResult> {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+function patchReq<T>(path: string, body: unknown): Promise<T> {
+  return req<T>(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
@@ -78,4 +95,11 @@ export const api = {
   executeLine: (line: string) => post("/api/command", { line }),
   executeButton: (button: string) => post("/api/command", { button }),
   control: (action: string) => post(`/api/control/${encodeURIComponent(action)}`),
+
+  // Config editor (gateway proxies /api/config → bot's /v1/config)
+  getConfig: () => req<ConfigResponse>("/api/config"),
+  patchConfig: (body: Record<string, unknown>) => patchReq<ConfigPatchResult>("/api/config", body),
+
+  // Restart the bot over the SSH tunnel (gateway-native route)
+  restart: () => post("/api/restart"),
 };

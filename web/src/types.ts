@@ -151,6 +151,21 @@ export interface LiveEvent {
   raw: any;
 }
 
+// Config editor — GET /api/config returns the bot's config with secrets stripped.
+export interface ConfigResponse {
+  ok?: boolean;
+  config: Record<string, any>;
+}
+
+// PATCH /api/config — success lists updated keys; failures carry forbidden fields.
+export interface ConfigPatchResult {
+  ok?: boolean;
+  message?: string;
+  updated?: string[];
+  error?: string;
+  forbidden?: string[];
+}
+
 // Gateway session / connection info (web-only).
 export interface SessionInfo {
   authenticated: boolean;

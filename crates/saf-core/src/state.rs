@@ -183,6 +183,10 @@ impl StateStore {
         self.queue.retain(|entry| !predicate(entry));
     }
 
+    pub fn remove_at(&mut self, index: usize) -> Option<QueueEntry> {
+        (index < self.queue.len()).then(|| self.queue.remove(index))
+    }
+
     pub fn clear_queue(&mut self) -> usize {
         let removed = self.queue.len();
         self.queue.clear();

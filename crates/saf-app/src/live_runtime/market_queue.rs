@@ -167,6 +167,14 @@ impl QueueStore for MarketActionQueueStore {
     async fn clear(&self, account: &AccountId) -> Result<usize, PortError> {
         self.inner.clear(account).await
     }
+
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<QueueEntry>, PortError> {
+        self.inner.remove_at(account, index).await
+    }
 }
 
 fn is_market_state(state: &BotState) -> bool {

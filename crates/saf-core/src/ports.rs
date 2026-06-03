@@ -162,6 +162,11 @@ pub trait QueueStore: Send + Sync {
     ) -> Result<bool, PortError>;
     async fn snapshot(&self, account: &AccountId) -> Result<Vec<QueueEntry>, PortError>;
     async fn clear(&self, account: &AccountId) -> Result<usize, PortError>;
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<QueueEntry>, PortError>;
 }
 
 #[async_trait]

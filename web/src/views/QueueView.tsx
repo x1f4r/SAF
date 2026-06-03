@@ -6,6 +6,7 @@ import {
   Page,
   PageHeader,
   GhostButton,
+  ActionChip,
   EmptyState,
   Hairline,
   ListRow,
@@ -36,7 +37,7 @@ function stateColor(state: string): string {
   }
 }
 
-function QueueRow({ entry }: { entry: QueueEntry }) {
+function QueueRow({ entry, onCancel }: { entry: QueueEntry; onCancel: () => void }) {
   const item = entryItemName(entry);
   const auction = entryAuctionId(entry);
   const price = entryPrice(entry);
@@ -70,6 +71,7 @@ function QueueRow({ entry }: { entry: QueueEntry }) {
       <div className="num" style={{
         width: 70, textAlign: "right", fontSize: 13, fontWeight: 700, color: "var(--text-2)",
       }}>{entry.priority}</div>
+      <ActionChip title="Cancel" icon="trash.fill" variant="danger" onClick={onCancel} />
     </div>
   );
 }
@@ -181,11 +183,19 @@ export function QueueView() {
                 <div style={{ width: 140, ...headerCell }}>STATE</div>
                 <div style={{ flex: 1, ...headerCell }}>DETAIL</div>
                 <div style={{ width: 70, textAlign: "right", ...headerCell }}>PRIORITY</div>
+                <div style={{ width: 86, ...headerCell }} />
               </div>
               <Hairline />
               {entries.map((entry, idx) => (
                 <ListRow key={idx} separator={idx < entries.length - 1}>
-                  <QueueRow entry={entry} />
+                  <QueueRow
+                    entry={entry}
+                    onCancel={() => {
+                      if (!currentIgn) return;
+                      store.runCommand("cancel_queue", { username: currentIgn, index: idx }, "Cancel queue entry");
+                      setTimeout(reload, 600);
+                    }}
+                  />
                 </ListRow>
               ))}
             </div>

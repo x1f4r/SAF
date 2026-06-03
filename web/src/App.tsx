@@ -5,6 +5,7 @@ import { useStore, type Tab } from "./store";
 import { AccountsView } from "./views/AccountsView";
 import { BlacklistView } from "./views/BlacklistView";
 import { CommandsView } from "./views/CommandsView";
+import { ConfigView } from "./views/ConfigView";
 import { ConnectionView } from "./views/ConnectionView";
 import { DashboardView } from "./views/DashboardView";
 import { DiagnosticsView } from "./views/DiagnosticsView";
@@ -23,11 +24,12 @@ const VIEWS: Record<Tab, () => JSX.Element> = {
   logs: LogsView,
   commands: CommandsView,
   blacklist: BlacklistView,
+  config: ConfigView,
   diagnostics: DiagnosticsView,
   settings: ConnectionView,
 };
 
-const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "blacklist", "diagnostics", "settings"];
+const ORDER: Tab[] = ["dashboard", "accounts", "flips", "profit", "queue", "logs", "commands", "config", "blacklist", "diagnostics", "settings"];
 
 export function App() {
   const store = useStore();

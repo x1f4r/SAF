@@ -141,11 +141,22 @@ export function ConnectionView() {
             icon="server.rack"
             trailing={
               <div style={{ display: "flex", gap: 10 }}>
+                <GhostButton title="Restart bot" icon="arrow.clockwise" danger
+                  disabled={!store.session?.transport?.includes("ssh")}
+                  onClick={() => store.runRestart()} />
                 <GhostButton title="Log out" icon="lock.fill" onClick={() => store.logout()} />
                 <GhostButton title="Refresh" icon="arrow.clockwise" onClick={() => store.refresh()} />
               </div>
             }
           />
+
+          <div style={{
+            fontSize: 11.5, fontWeight: 600, color: "var(--text-3)", lineHeight: 1.5,
+            display: "flex", alignItems: "center", gap: 7,
+          }}>
+            <Icon name="lock.shield.fill" size={12} style={{ color: "var(--text-3)" }} />
+            Restarting the bot needs the SSH tunnel transport — it's unavailable on a direct connection.
+          </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <InfoRow label="Upstream" value={upstream} mono />

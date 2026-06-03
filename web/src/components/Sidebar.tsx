@@ -10,6 +10,7 @@ const TABS: { id: Tab; title: string; icon: string }[] = [
   { id: "queue", title: "Queue", icon: "queue" },
   { id: "logs", title: "Console", icon: "console" },
   { id: "commands", title: "Commands", icon: "command" },
+  { id: "config", title: "Config", icon: "slider.horizontal.3" },
   { id: "blacklist", title: "Blacklist", icon: "nosign" },
   { id: "diagnostics", title: "Diagnostics", icon: "activity" },
   { id: "settings", title: "Connection", icon: "connection" },

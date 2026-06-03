@@ -16,7 +16,7 @@ use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use saf_core::ports::{
     AccountConnectionProvider, AccountStats, AccountStatsProvider, Notification, Notifier,
@@ -35,6 +35,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::broadcast;
+
+mod config_routes;
 
 const DEFAULT_PORT: u16 = 8787;
 const EVENT_CHANNEL_CAPACITY: usize = 1024;
@@ -311,6 +313,7 @@ pub(in crate::live_runtime) struct ApiContext {
     pub started_at_ms: u64,
     pub version: String,
     pub market_mode: String,
+    pub config_path: PathBuf,
 }
 
 #[derive(Clone)]
@@ -330,6 +333,7 @@ struct ApiState {
     version: Arc<str>,
     market_mode: Arc<str>,
     branding_name: Arc<str>,
+    config_path: Arc<PathBuf>,
 }
 
 /// Spawn the server when the API is enabled and a token is configured. Returns
@@ -368,6 +372,7 @@ pub(in crate::live_runtime) fn maybe_spawn_server(
         version: Arc::from(ctx.version.as_str()),
         market_mode: Arc::from(ctx.market_mode.as_str()),
         branding_name: Arc::from(ctx.config.branding.name.as_str()),
+        config_path: Arc::new(ctx.config_path),
     };
 
     Some(tokio::spawn(async move {
@@ -387,6 +392,8 @@ async fn serve(state: ApiState, port: u16) -> anyhow::Result<()> {
         .route("/v1/profit/{ign}/series", get(profit_series))
         .route("/v1/flips", get(flips))
         .route("/v1/logs", get(logs))
+        .route("/v1/config", get(config_routes::get_config))
+        .route("/v1/config", patch(config_routes::patch_config))
         .route("/v1/alerts", get(alerts))
         .route("/v1/commands", get(commands_catalog))
         .route("/v1/command", post(execute_command))

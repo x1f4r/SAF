@@ -133,6 +133,75 @@ app.post("/api/logout", (_req, res) => {
   res.json({ ok: true });
 });
 
+// Liveness probe (unauthenticated; used by the Docker/compose healthcheck).
+// Registered before the /api/* proxy and SPA fallback so it answers locally
+// without touching the upstream bot API.
+app.get("/healthz", (_req, res) => res.status(200).json({ ok: true }));
+
+// Restart the bot over SSH. Gateway-native: this is NOT proxied to /v1/* — it
+// runs the restart command on the bot host via the same SSH transport the
+// tunnel uses, then returns immediately (fire-and-forget).
+app.post("/api/restart", (req, res) => {
+  if (!isAuthed(req)) return res.status(401).json({ error: "unauthorized", message: "Not logged in." });
+
+  const dest = process.env.SSH_DEST || process.env.SSH_HOST;
+  if (transport === "direct" || !dest) {
+    return res.status(501).json({
+      error: "no_ssh_tunnel",
+      message: "Restart requires SSH tunnel; configure SSH_DEST/SSH_HOST and BOT_API_TOKEN.",
+    });
+  }
+
+  const dir = process.env.SAF_RESTART_DIR || "/opt/saf";
+  const command = process.env.SAF_RESTART_COMMAND || "./saf.sh restart";
+  const remoteCmd = `cd ${dir} && ${command}`;
+
+  // Same ssh-arg shape as startTunnel(): non-interactive (BatchMode), with the
+  // optional port/key wired from the existing env knobs.
+  const args = [
+    "-o", "BatchMode=yes",
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ServerAliveInterval=15",
+    "-o", "ServerAliveCountMax=3",
+  ];
+  if (process.env.SSH_PORT) args.push("-p", process.env.SSH_PORT);
+  if (process.env.SSH_KEY) args.push("-i", process.env.SSH_KEY, "-o", "IdentitiesOnly=yes");
+  args.push(dest, remoteCmd);
+
+  let proc;
+  try {
+    proc = spawn("ssh", args, { stdio: ["ignore", "ignore", "pipe"] });
+  } catch (e) {
+    return res.status(502).json({ error: "ssh_execution_failed", message: `ssh command failed: ${String(e?.message ?? e)}` });
+  }
+
+  let stderr = "";
+  let settled = false;
+  proc.stderr?.on("data", (d) => { stderr += d.toString(); });
+  proc.on("error", (e) => {
+    if (settled) return;
+    settled = true;
+    res.status(502).json({ error: "ssh_execution_failed", message: `ssh command failed: ${String(e?.message ?? e)}` });
+  });
+  proc.on("exit", (code) => {
+    if (settled) return;
+    if (code && code !== 0) {
+      settled = true;
+      res.status(502).json({ error: "ssh_execution_failed", message: `ssh command failed: ${stderr.trim() || `exit ${code}`}` });
+    }
+  });
+
+  // Restarting the bot tears down its SSH session, so ssh may not exit cleanly
+  // before the command takes effect. Wait briefly for an early failure, then
+  // detach and report success (fire-and-forget).
+  setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    try { proc.unref(); } catch {}
+    res.status(200).json({ ok: true, message: "Restart initiated over SSH" });
+  }, 2000);
+});
+
 // REST proxy: /api/<x> → <upstream>/v1/<x>
 app.all("/api/*", async (req, res) => {
   if (!isAuthed(req)) return res.status(401).json({ error: "unauthorized", message: "Not logged in." });

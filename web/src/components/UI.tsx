@@ -61,9 +61,10 @@ export function PrimaryButton({ title, icon, onClick, disabled, gradient }: {
   );
 }
 
-export function GhostButton({ title, icon, onClick, danger }: { title: string; icon?: string; onClick?: () => void; danger?: boolean }) {
+export function GhostButton({ title, icon, onClick, danger, disabled }: { title: string; icon?: string; onClick?: () => void; danger?: boolean; disabled?: boolean }) {
   return (
-    <button className={`btn btn-ghost${danger ? " danger" : ""}`} onClick={onClick}>
+    <button className={`btn btn-ghost${danger ? " danger" : ""}`} onClick={onClick} disabled={disabled}
+      style={disabled ? { opacity: 0.45, cursor: "default" } : undefined}>
       {icon && <Icon name={icon} size={13} />}{title}
     </button>
   );

@@ -29,7 +29,7 @@ import type {
 
 export type Tab =
   | "dashboard" | "accounts" | "flips" | "profit"
-  | "queue" | "logs" | "commands" | "blacklist" | "diagnostics" | "settings";
+  | "queue" | "logs" | "commands" | "blacklist" | "config" | "diagnostics" | "settings";
 
 export interface DiagEvent {
   id: number;
@@ -84,6 +84,7 @@ interface StoreValue {
   login: (password: string) => Promise<boolean>;
   logout: () => void;
   refresh: () => Promise<void>;
+  runRestart: () => void;
   runControl: (action: string) => void;
   runCommand: (name: string, options?: Record<string, unknown>, label?: string) => void;
   runButton: (button: string, title: string) => void;
@@ -101,6 +102,19 @@ export const useStore = () => {
 
 let toastSeq = 1;
 
+// Diagnostics history survives reloads via localStorage (capped per the contract).
+const DIAG_KEY = "saf_diag_history";
+const DIAG_PERSIST_CAP = 500;
+
+function loadDiagHistory(): DiagEvent[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DIAG_KEY) || "[]");
+    return Array.isArray(raw) ? (raw as DiagEvent[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<StoreValue["phase"]>("loading");
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -116,7 +130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [commands, setCommands] = useState<CommandDefinition[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
-  const [diag, setDiag] = useState<DiagEvent[]>([]);
+  const [diag, setDiag] = useState<DiagEvent[]>(loadDiagHistory);
 
   const [streamConnected, setStreamConnected] = useState(false);
   const [reachable, setReachable] = useState(false);
@@ -125,11 +139,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const tickRef = useRef(0);
   const streamRef = useRef<EventStream | null>(null);
-  const diagSeq = useRef(1);
+  // Start the id counter past any restored history so reloaded ids stay unique.
+  const diagSeq = useRef(diag.reduce((max, d) => Math.max(max, d.id), 0) + 1);
   const wasReachable = useRef(false);
 
   const logDiag = useCallback((level: DiagEvent["level"], message: string) => {
-    setDiag((prev) => [{ id: diagSeq.current++, ts: Date.now(), level, message }, ...prev].slice(0, 300));
+    const event = { id: diagSeq.current++, ts: Date.now(), level, message };
+    setDiag((prev) => [event, ...prev].slice(0, 300));
+    // Persist a deeper history (cap 500) so Diagnostics survives a reload.
+    try {
+      const history = [event, ...loadDiagHistory()].slice(0, DIAG_PERSIST_CAP);
+      localStorage.setItem(DIAG_KEY, JSON.stringify(history));
+    } catch {
+      /* storage full / unavailable — keep the in-memory log only */
+    }
   }, []);
 
   const showToast = useCallback((t: Omit<Toast, "id">) => {
@@ -270,6 +293,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPhase("login");
   }, []);
 
+  const runRestart = useCallback(() => {
+    if (!window.confirm("Restart the bot now? Every account will disconnect and come back up.")) return;
+    logDiag("warn", "Restart requested from the dashboard.");
+    api.restart()
+      .then((res) => {
+        showToast({
+          icon: "arrow.clockwise", tint: "var(--accent)", title: "Restart initiated",
+          detail: res?.message ?? "The bot is restarting over SSH.",
+        });
+        logDiag("info", res?.message ?? "Restart initiated over SSH.");
+      })
+      .catch((e) => {
+        const msg = String(e?.message ?? e);
+        showToast({ icon: "x", tint: "var(--loss)", title: "Restart failed", detail: msg });
+        logDiag("error", "Restart failed: " + msg);
+      });
+  }, [logDiag, showToast]);
+
   const runControl = useCallback((action: string) => {
     api.control(action)
       .then(() => {
@@ -336,10 +377,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return bought.filter((f) => f.ts >= cutoff).reduce((x, f) => x + f.profit, 0);
     })(),
     ppHour: (accounts?.accounts ?? []).reduce((x, a) => x + (a.running ? a.stats.profitPerHour ?? 0 : 0), 0),
-    login, logout, refresh, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag,
+    login, logout, refresh, runRestart, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag,
   }), [phase, session, tab, status, accounts, profit, series, bought, sold, logs, events,
     commands, alerts, diag, streamConnected, reachable, lastError, toast, connectedCount, readyCount, connectionState,
-    login, logout, refresh, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag]);
+    login, logout, refresh, runRestart, runControl, runCommand, runButton, runLine, runTransfer, showToast, logDiag]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

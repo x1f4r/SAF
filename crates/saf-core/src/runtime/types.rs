@@ -50,6 +50,10 @@ pub enum RuntimeDirective {
     ClearQueue {
         account: AccountId,
     },
+    CancelQueueEntry {
+        account: AccountId,
+        index: usize,
+    },
     ClearAllQueues,
     ClearData {
         account: AccountId,
@@ -150,6 +154,11 @@ pub enum RuntimeOutcome {
     QueueCleared {
         account: AccountId,
         removed: usize,
+    },
+    QueueEntryCancelled {
+        account: AccountId,
+        entry: Option<crate::QueueEntry>,
+        index: usize,
     },
     QueuesCleared {
         accounts: Vec<QueueClearSnapshot>,

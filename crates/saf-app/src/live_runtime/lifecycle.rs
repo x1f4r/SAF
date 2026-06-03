@@ -345,6 +345,7 @@ impl LiveRuntime {
                         _ => "dry-run",
                     }
                     .to_string(),
+                    config_path: options.config_path.clone(),
                 })
             }
             _ => None,

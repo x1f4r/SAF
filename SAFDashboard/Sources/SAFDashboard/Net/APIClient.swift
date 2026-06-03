@@ -108,7 +108,25 @@ struct APIClient {
         try await send(request("v1/commands"), as: CommandsResponse.self).commands
     }
 
+    /// The bot's editable config (secrets stripped server-side). Returns the
+    /// `config` object from `{ ok, config }`.
+    func getConfig() async throws -> [String: JSONValue] {
+        struct R: Codable { var ok: Bool?; var config: [String: JSONValue] }
+        return try await send(request("v1/config"), as: R.self).config
+    }
+
     // MARK: Writes
+
+    /// PATCH only the changed top-level keys. The server validates against its
+    /// SAFE allowlist; forbidden/unknown keys come back as an HTTP 400 whose
+    /// message is surfaced to the user.
+    @discardableResult
+    func patchConfig(_ patch: [String: JSONValue]) async throws -> (message: String, updated: [String]) {
+        struct R: Codable { var ok: Bool?; var message: String?; var updated: [String]? }
+        let body = try JSONEncoder().encode(patch)
+        let result = try await send(request("v1/config", method: "PATCH", body: body), as: R.self)
+        return (result.message ?? "Config updated", result.updated ?? [])
+    }
 
     @discardableResult
     func execute(command: String, options: [String: JSONValue] = [:]) async throws -> CommandResult {

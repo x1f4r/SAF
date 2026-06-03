@@ -11,7 +11,7 @@ final class AppStore: ObservableObject {
 
     // Navigation
     enum Tab: String, CaseIterable, Identifiable {
-        case dashboard, accounts, flips, profit, queue, logs, commands, blacklist, diagnostics, settings
+        case dashboard, accounts, flips, profit, queue, logs, commands, config, blacklist, diagnostics, settings
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -22,6 +22,7 @@ final class AppStore: ObservableObject {
             case .queue: return "Queue"
             case .logs: return "Console"
             case .commands: return "Commands"
+            case .config: return "Config"
             case .blacklist: return "Blacklist"
             case .diagnostics: return "Diagnostics"
             case .settings: return "Connection"
@@ -36,6 +37,7 @@ final class AppStore: ObservableObject {
             case .queue: return "list.bullet.rectangle.fill"
             case .logs: return "terminal.fill"
             case .commands: return "command"
+            case .config: return "slider.horizontal.3"
             case .blacklist: return "nosign"
             case .diagnostics: return "waveform.path.ecg"
             case .settings: return "antenna.radiowaves.left.and.right"
@@ -78,6 +80,8 @@ final class AppStore: ObservableObject {
     func logDiag(_ level: String, _ message: String) {
         diag.insert(DiagEvent(ts: Date(), level: level, message: message), at: 0)
         if diag.count > 300 { diag.removeLast(diag.count - 300) }
+        // Persist a rotating on-disk trail (background, fails silently).
+        DiagnosticsLogger.shared.append(level: level, message: message)
     }
 
     var connectedCount: Int {
@@ -323,6 +327,61 @@ final class AppStore: ObservableObject {
             } catch {
                 showError(error)
             }
+        }
+    }
+
+    /// Restart the bot on the remote host over SSH. For web parity this mirrors
+    /// `POST /api/restart`, but on macOS we run it directly over the app's SSH
+    /// connection so it works without a deployed web gateway.
+    func restart() async {
+        do {
+            logDiag("warn", "Restarting the bot…")
+            let output = try await RemoteRestart.run(profile)
+            toast = ToastMessage(
+                icon: "arrow.counterclockwise", tint: Theme.warn,
+                title: "Restart initiated", detail: output.isEmpty ? "The bot is restarting" : output)
+            logDiag("info", "Restart command sent to the host.")
+            // The API will drop while the bot bounces; a fresh poll reconnects.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await refresh()
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            lastError = message
+            logDiag("error", "Restart failed: \(message)")
+            toast = ToastMessage(icon: "xmark.octagon.fill", tint: Theme.loss, title: "Restart failed", detail: message)
+        }
+    }
+
+    // MARK: Config editor hooks
+
+    /// Load the bot's editable config for the Config view.
+    func loadConfig() async throws -> [String: JSONValue] {
+        guard let api else { throw APIError.notConfigured }
+        return try await api.getConfig()
+    }
+
+    /// Save the changed config keys. Surfaces success/forbidden errors as toasts
+    /// and returns whether the patch was accepted.
+    @discardableResult
+    func saveConfig(_ patch: [String: JSONValue]) async -> Bool {
+        guard let api else {
+            showError(APIError.notConfigured)
+            return false
+        }
+        if patch.isEmpty {
+            toast = ToastMessage(icon: "checkmark.circle.fill", tint: Theme.accent, title: "No changes", detail: "Nothing to save")
+            return true
+        }
+        do {
+            let result = try await api.patchConfig(patch)
+            toast = ToastMessage(
+                icon: "checkmark.circle.fill", tint: Theme.profit,
+                title: "Config saved", detail: result.updated.isEmpty ? result.message : "Updated \(result.updated.joined(separator: ", "))")
+            logDiag("info", "Config updated: \(result.updated.joined(separator: ", "))")
+            return true
+        } catch {
+            showError(error)
+            return false
         }
     }
 

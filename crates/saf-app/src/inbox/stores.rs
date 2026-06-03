@@ -39,15 +39,20 @@ impl QueueStore for RecordedQueueStore {
         state: BotState,
         priority: u8,
     ) -> Result<bool, PortError> {
-        self.entries
+        let mut entries = self
+            .entries
             .lock()
-            .map_err(|_| PortError::Failed("queue lock poisoned".to_string()))?
-            .push(QueueRecord {
-                account: account.clone(),
-                action,
-                state,
-                priority,
-            });
+            .map_err(|_| PortError::Failed("queue lock poisoned".to_string()))?;
+        entries.push(QueueRecord {
+            account: account.clone(),
+            action,
+            state,
+            priority,
+        });
+        // Mirror FileQueueStore's stable priority sort (StateStore::add) so a
+        // snapshot index shared between the file and recorded stores (used by
+        // cancel_queue / remove_at) resolves to the same entry in both.
+        entries.sort_by_key(|entry| entry.priority);
         Ok(true)
     }
 
@@ -71,6 +76,24 @@ impl QueueStore for RecordedQueueStore {
         let before = entries.len();
         entries.retain(|entry| &entry.account != account);
         Ok(before - entries.len())
+    }
+
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<QueueEntry>, PortError> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| PortError::Failed("queue lock poisoned".to_string()))?;
+        let position = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| &entry.account == account)
+            .nth(index)
+            .map(|(position, _)| position);
+        Ok(position.map(|position| QueueEntry::from(entries.remove(position))))
     }
 }
 
@@ -380,6 +403,15 @@ impl QueueStore for TeeQueueStore {
         let file = self.file.clear(account).await?;
         Ok(recorded.max(file))
     }
+
+    async fn remove_at(
+        &self,
+        account: &AccountId,
+        index: usize,
+    ) -> Result<Option<QueueEntry>, PortError> {
+        self.recorded.remove_at(account, index).await?;
+        self.file.remove_at(account, index).await
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -405,5 +437,45 @@ impl SavedDataStore for TeeSavedDataStore {
         };
         self.recorded.record_clear(account, result.clone())?;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn acct(name: &str) -> AccountId {
+        AccountId::new(name).unwrap()
+    }
+
+    /// The recorded store must order a snapshot by priority exactly like the
+    /// file store, so a `cancel_queue` index the UI took against the file
+    /// snapshot removes the SAME entry from the recorded log.
+    #[tokio::test]
+    async fn recorded_store_orders_and_removes_by_priority_like_the_file_store() {
+        let store = RecordedQueueStore::default();
+        let a = acct("MainAccount");
+        // Insert out of priority order (5, 3, 4).
+        for (tag, prio) in [("p5", 5u8), ("p3", 3), ("p4", 4)] {
+            store
+                .add(&a, json!({ "tag": tag }), BotState::Buying, prio)
+                .await
+                .unwrap();
+        }
+        // Snapshot is priority-sorted (3, 4, 5), matching FileQueueStore.
+        let snap = store.snapshot(&a).await.unwrap();
+        assert_eq!(
+            snap.iter().map(|e| e.priority).collect::<Vec<_>>(),
+            vec![3, 4, 5]
+        );
+        // Removing index 1 removes the priority-4 entry the UI saw there.
+        let removed = store.remove_at(&a, 1).await.unwrap().unwrap();
+        assert_eq!(removed.priority, 4);
+        let after = store.snapshot(&a).await.unwrap();
+        assert_eq!(
+            after.iter().map(|e| e.priority).collect::<Vec<_>>(),
+            vec![3, 5]
+        );
     }
 }

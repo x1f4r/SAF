@@ -66,13 +66,27 @@ struct QueueView: View {
                 Hairline()
                 ForEach(Array(entries.enumerated()), id: \.element.id) { idx, entry in
                     ListRow(showsSeparator: idx < entries.count - 1, insets: EdgeInsets(top: 11, leading: 6, bottom: 11, trailing: 6)) {
-                        QueueRow(entry: entry)
+                        QueueRow(entry: entry) { cancel(index: idx) }
+                    }
+                    .contextMenu {
+                        Button(role: .destructive) { cancel(index: idx) } label: {
+                            Label("Cancel entry", systemImage: "xmark.circle")
+                        }
                     }
                 }
             }
         } else {
             EmptyState(icon: "checkmark.circle", text: "Queue is empty.").frame(height: 200)
         }
+    }
+
+    private func cancel(index: Int) {
+        guard let ign = currentIgn else { return }
+        store.runCommand(
+            "cancel_queue",
+            options: ["username": .string(ign), "index": .number(Double(index))],
+            label: "Cancel queue entry")
+        Task { try? await Task.sleep(nanoseconds: 600_000_000); await load() }
     }
 
     private func load() async {
@@ -85,6 +99,8 @@ struct QueueView: View {
 
 struct QueueRow: View {
     let entry: QueueEntry
+    var onCancel: (() -> Void)? = nil
+    @State private var hover = false
     private var stateColor: Color {
         switch entry.state.lowercased() {
         case "buying": return Theme.profit
@@ -112,6 +128,19 @@ struct QueueRow: View {
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Text("\(entry.priority)").font(.numeric(13, .bold)).foregroundStyle(Theme.textSecondary).frame(width: 70, alignment: .trailing)
+            if let onCancel {
+                Button(action: onCancel) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(hover ? Theme.loss : Theme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .help("Cancel this entry")
+                .opacity(hover ? 1 : 0.55)
+                .frame(width: 22)
+            }
         }
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
     }
 }

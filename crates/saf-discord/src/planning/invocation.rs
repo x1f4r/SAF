@@ -120,6 +120,17 @@ pub fn plan_invocation(
             }
             None => "clear_queue_all".to_string(),
         })),
+        "cancel_queue" => {
+            let index = invocation
+                .integer("index")
+                .ok_or_else(|| DiscordCommandPlanError::MissingOption("index"))?
+                .to_string();
+            Ok(local_terminal(targeted_line(
+                username.as_deref(),
+                "cancel_queue",
+                [index.as_str()],
+            )))
+        }
         "clear_data" => Ok(controller(DiscordControllerAction::StatusForConfirmation {
             username: username.unwrap_or_default(),
             action: "clear_data".to_string(),

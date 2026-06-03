@@ -360,6 +360,9 @@ fn runtime_directive_summary(directive: &RuntimeDirective) -> String {
         RuntimeDirective::ShowInventory { account } => format!("{account} inventory"),
         RuntimeDirective::ShowQueue { account } => format!("{account} queue snapshot"),
         RuntimeDirective::ClearQueue { account } => format!("{account} clear queue"),
+        RuntimeDirective::CancelQueueEntry { account, index } => {
+            format!("{account} cancel queue entry {index}")
+        }
         RuntimeDirective::ClearAllQueues => "clear all queues".to_string(),
         RuntimeDirective::ClearData { account } => format!("{account} clear data"),
         RuntimeDirective::CheckBids { account } => format!("{account} check bids"),
@@ -420,6 +423,7 @@ fn runtime_outcome_name(outcome: &RuntimeOutcome) -> &'static str {
         RuntimeOutcome::Queued { .. } => "queued",
         RuntimeOutcome::QueueSnapshot { .. } => "queueSnapshot",
         RuntimeOutcome::QueueCleared { .. } => "queueCleared",
+        RuntimeOutcome::QueueEntryCancelled { .. } => "queueEntryCancelled",
         RuntimeOutcome::QueuesCleared { .. } => "queuesCleared",
         RuntimeOutcome::SavedDataCleared { .. } => "savedDataCleared",
         RuntimeOutcome::BlacklistApplied { .. } => "blacklistApplied",
