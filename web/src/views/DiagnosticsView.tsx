@@ -25,24 +25,45 @@ export function DiagnosticsView() {
   const s = useStore();
   const cs = s.connectionState;
 
-  function copyLog() {
-    const lines = [
+  function reportText() {
+    return [
       `# SAF Dashboard diagnostics — ${new Date().toISOString()}`,
       `connection=${cs} reachable=${s.reachable} liveFeed=${s.streamConnected} bot=${s.status?.name ?? "—"} accountsReady=${s.readyCount}/${s.configuredCount}`,
       "", "## Connection log",
       ...s.diag.map((d) => `${new Date(d.ts).toISOString()} ${d.level.toUpperCase()} ${d.message}`),
       "", "## Bot alerts",
       ...s.alerts.map((a) => `${a.ts} ${a.level.toUpperCase()} ${a.message}`),
-    ];
-    navigator.clipboard?.writeText(lines.join("\n"));
+    ].join("\n");
+  }
+
+  function copyLog() {
+    navigator.clipboard?.writeText(reportText());
     s.showToast?.({ icon: "copy", tint: "var(--accent)", title: "Diagnostics copied", detail: "Paste it into a bug report" });
   }
+
+  function downloadLog() {
+    const blob = new Blob([reportText()], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `saf-diagnostics-${new Date().toISOString().replace(/:/g, "-")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    s.showToast?.({ icon: "check", tint: "var(--profit)", title: "Report downloaded", detail: a.download });
+  }
+
+  const reportBtn = {
+    display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", borderRadius: 999,
+    border: "1px solid var(--stroke)", background: "transparent", color: "var(--t2)", fontSize: 13, fontWeight: 600,
+  } as const;
 
   return (
     <Page>
       <PageHeader title="Diagnostics" subtitle="Connection health, bot alerts, and a troubleshooting log."
-        trailing={<button onClick={copyLog} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 13px", borderRadius: 999, border: "1px solid var(--stroke)", background: "transparent", color: "var(--t2)", fontSize: 13, fontWeight: 600 }}>
-          <Icon name="copy" size={12} />Copy report</button>} />
+        trailing={<div style={{ display: "flex", gap: 10 }}>
+          <button onClick={copyLog} style={reportBtn}><Icon name="copy" size={12} />Copy report</button>
+          <button onClick={downloadLog} style={reportBtn}><Icon name="arrow.down.to.line" size={12} />Download report</button>
+        </div>} />
 
       {/* Health strip */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 26 }}>

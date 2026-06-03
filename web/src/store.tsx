@@ -229,6 +229,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setStreamConnected(connected);
       if (lastStreamState !== null && lastStreamState !== connected) {
         logDiag(connected ? "info" : "warn", connected ? "Live feed connected." : "Live feed dropped — reconnecting.");
+        // Reconcile on reconnect: a dropped feed may have missed buys/sells, so
+        // pull a fresh full snapshot the moment the link is back.
+        if (connected) refresh();
       }
       lastStreamState = connected;
     };

@@ -172,16 +172,32 @@ const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, socket, head) => {
   if (!req.url?.startsWith("/events")) { socket.destroy(); return; }
   if (AUTH_REQUIRED && !validCookie(parseCookies(req.headers.cookie || "")[COOKIE])) { socket.destroy(); return; }
-  wss.handleUpgrade(req, socket, head, (client) => {
-    const upstream = new WebSocket(`ws://${upstreamHost}:${upstreamPort}/v1/events`, {
-      headers: { Authorization: `Bearer ${TOKEN}` },
+  // Connect upstream FIRST and only complete the browser handshake once the bot
+  // feed is actually open. That way the client's `onopen` genuinely means
+  // "streaming": its reconnect backoff stays honest and there's no connect/drop
+  // flapping while the bot is down (the gateway just keeps the client waiting,
+  // or fails the upgrade, instead of accepting-then-immediately-closing).
+  const upstream = new WebSocket(`ws://${upstreamHost}:${upstreamPort}/v1/events`, {
+    headers: { Authorization: `Bearer ${TOKEN}` },
+    handshakeTimeout: 8000,
+  });
+  let upgraded = false;
+  const abort = () => {
+    if (!upgraded) { try { socket.destroy(); } catch {} }
+    try { upstream.close(); } catch {}
+  };
+  upstream.on("error", abort);
+  socket.on("error", abort);
+  socket.on("close", () => { try { upstream.close(); } catch {} });
+  upstream.once("open", () => {
+    upgraded = true;
+    wss.handleUpgrade(req, socket, head, (client) => {
+      const closeBoth = () => { try { client.close(); } catch {} try { upstream.close(); } catch {} };
+      upstream.on("message", (d, isBin) => client.readyState === WebSocket.OPEN && client.send(d, { binary: isBin }));
+      client.on("message", (d, isBin) => upstream.readyState === WebSocket.OPEN && upstream.send(d, { binary: isBin }));
+      upstream.on("close", closeBoth);
+      client.on("close", closeBoth);
+      client.on("error", closeBoth);
     });
-    const closeBoth = () => { try { client.close(); } catch {} try { upstream.close(); } catch {} };
-    upstream.on("message", (d, isBin) => client.readyState === WebSocket.OPEN && client.send(d, { binary: isBin }));
-    client.on("message", (d, isBin) => upstream.readyState === WebSocket.OPEN && upstream.send(d, { binary: isBin }));
-    upstream.on("close", closeBoth);
-    client.on("close", closeBoth);
-    upstream.on("error", closeBoth);
-    client.on("error", closeBoth);
   });
 });

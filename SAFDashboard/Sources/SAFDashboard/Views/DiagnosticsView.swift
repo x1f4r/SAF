@@ -18,7 +18,10 @@ struct DiagnosticsView: View {
     var body: some View {
         Page(spacing: 22) {
             PageHeader("Diagnostics", subtitle: "Connection health, bot alerts, and a troubleshooting log.") {
-                GhostButton(title: "Copy report", systemImage: "doc.on.doc") { copyReport() }
+                HStack(spacing: 10) {
+                    GhostButton(title: "Copy report", systemImage: "doc.on.doc") { copyReport() }
+                    GhostButton(title: "Save report…", systemImage: "square.and.arrow.down") { saveReport() }
+                }
             }
 
             healthStrip
@@ -76,7 +79,7 @@ struct DiagnosticsView: View {
         }
     }
 
-    private func copyReport() {
+    private func reportText() -> String {
         var lines = [
             "# SAF Dashboard diagnostics — \(Date().ISO8601Format())",
             "connection=\(store.healthState) reachable=\(store.reachable) liveFeed=\(store.stream.connected) bot=\(store.status?.name ?? "—") accountsReady=\(store.readyCount)/\(store.configuredCount)",
@@ -85,9 +88,29 @@ struct DiagnosticsView: View {
         lines += store.diag.map { "\($0.ts.ISO8601Format()) \($0.level.uppercased()) \($0.message)" }
         lines += ["", "## Bot alerts"]
         lines += store.alerts.map { "\($0.ts) \($0.level.uppercased()) \($0.message)" }
+        return lines.joined(separator: "\n")
+    }
+
+    private func copyReport() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        NSPasteboard.general.setString(reportText(), forType: .string)
         store.toast = ToastMessage(icon: "doc.on.doc", tint: Theme.accent, title: "Diagnostics copied", detail: "Paste it into a bug report")
+    }
+
+    private func saveReport() {
+        let panel = NSSavePanel()
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        panel.nameFieldStringValue = "saf-diagnostics-\(stamp).txt"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try reportText().data(using: .utf8)?.write(to: url)
+            store.toast = ToastMessage(icon: "square.and.arrow.down", tint: Theme.profit,
+                title: "Report saved", detail: url.lastPathComponent)
+        } catch {
+            store.toast = ToastMessage(icon: "xmark.octagon.fill", tint: Theme.loss,
+                title: "Save failed", detail: error.localizedDescription)
+        }
     }
 }
 

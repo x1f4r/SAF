@@ -136,8 +136,12 @@ final class AppStore: ObservableObject {
         webServer.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &bag)
         stream.$connected.dropFirst().removeDuplicates().sink { [weak self] connected in
-            self?.logDiag(connected ? "info" : "warn",
+            guard let self else { return }
+            self.logDiag(connected ? "info" : "warn",
                 connected ? "Live feed connected." : "Live feed dropped — reconnecting.")
+            // Reconcile on reconnect: the dropped feed may have missed buys/sells,
+            // so pull a fresh snapshot as soon as the link is back.
+            if connected { Task { await self.refresh() } }
         }.store(in: &bag)
 
         stream.onEvent = { [weak self] event in self?.apply(event) }

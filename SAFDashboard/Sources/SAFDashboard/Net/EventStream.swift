@@ -11,6 +11,7 @@ final class EventStream: ObservableObject {
     private var shouldRun = false
     private var url: URL?
     private var token: String = ""
+    private var reconnectAttempt = 0
     var onEvent: ((LiveEvent) -> Void)?
 
     func start(url: URL, token: String) {
@@ -41,7 +42,9 @@ final class EventStream: ObservableObject {
         let task = session.webSocketTask(with: req)
         self.task = task
         task.resume()
-        connected = true
+        // `connected` flips true only once the bot's initial snapshot actually
+        // arrives (see receive()), so the indicator never shows a false
+        // "streaming" while the bot is down.
         receive()
     }
 
@@ -51,16 +54,28 @@ final class EventStream: ObservableObject {
                 guard let self else { return }
                 switch result {
                 case .success(let message):
+                    self.reconnectAttempt = 0  // a real message proves the link is healthy
+                    self.connected = true
                     self.handle(message)
                     self.receive()
                 case .failure:
                     self.connected = false
                     guard self.shouldRun else { return }
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    let delay = self.reconnectDelayNanos()
+                    self.reconnectAttempt += 1
+                    try? await Task.sleep(nanoseconds: delay)
                     if self.shouldRun { self.connect() }
                 }
             }
         }
+    }
+
+    /// Exponential backoff (1s → 30s) with ±25% jitter so a downed server isn't
+    /// hammered with a fixed-cadence retry that's also easy to fingerprint.
+    private func reconnectDelayNanos() -> UInt64 {
+        let base = min(30.0, pow(2.0, Double(reconnectAttempt)))
+        let jitter = Double.random(in: 0.75...1.25)
+        return UInt64(max(0.5, base * jitter) * 1_000_000_000)
     }
 
     private func handle(_ message: URLSessionWebSocketTask.Message) {
