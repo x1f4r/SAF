@@ -32,6 +32,39 @@ fn next_passive_chat_category_count(category: &'static str) -> u64 {
     }
 }
 
+/// Default fraction of the relist price to reserve for the auction creation fee
+/// (Hypixel BIN fee is ~2%; reserve a little more to cover the duration add-on
+/// and purse-read lag). Override with `SAF_RELIST_FEE_RESERVE_RATE`.
+const DEFAULT_RELIST_FEE_RESERVE_RATE: f64 = 0.025;
+
+fn relist_fee_reserve_enabled() -> bool {
+    !std::env::var("SAF_REQUIRE_RELIST_FEE_RESERVE")
+        .is_ok_and(|value| matches!(value.trim(), "0" | "false" | "off" | "no"))
+}
+
+fn relist_fee_reserve_rate() -> f64 {
+    std::env::var("SAF_RELIST_FEE_RESERVE_RATE")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|rate| rate.is_finite() && *rate >= 0.0 && *rate <= 1.0)
+        .unwrap_or(DEFAULT_RELIST_FEE_RESERVE_RATE)
+}
+
+/// Pure decision for [`LiveCoflStream::relist_fee_reserve_violation`]: if the
+/// purse can't cover `starting_bid` plus the reserved relist fee
+/// (`target * rate`), returns the reserved-fee amount (for the message);
+/// otherwise `None`.
+fn relist_fee_reserve_shortfall(
+    starting_bid: f64,
+    target: f64,
+    purse: f64,
+    rate: f64,
+) -> Option<f64> {
+    let reserve = target.max(0.0) * rate;
+    let required = starting_bid + reserve;
+    (purse + 1.0 < required).then_some(reserve)
+}
+
 pub(in crate::live_runtime) struct LiveCoflStream {
     pub(in crate::live_runtime) account: AccountId,
     pub(in crate::live_runtime) client: Arc<LiveCoflClient>,
@@ -130,6 +163,35 @@ impl LiveCoflStream {
         self.client.upload_initial_scoreboard_if_needed(lines).await;
     }
 
+    /// Refuses a flip the bot could buy but then not afford to *relist*. After
+    /// paying `starting_bid`, the remaining purse must cover the auction creation
+    /// fee for the relist (the fee is ~2% of the BIN price; we reserve a slightly
+    /// larger margin). Without this, a big buy drains the purse and the item gets
+    /// stuck unlistable — capital lockup. Fails open when the purse is unknown
+    /// (e.g. just after login, before the scoreboard loads). Returns a skip reason
+    /// or `None` to allow the buy.
+    fn relist_fee_reserve_violation(
+        &self,
+        flip: &FlipEvent,
+        stats: &LiveStatsProvider,
+    ) -> Option<String> {
+        if !relist_fee_reserve_enabled() || !flip.is_valid() {
+            return None;
+        }
+        // Unknown purse → don't block (the scoreboard loads within seconds; a
+        // total block on a transient read gap is worse than the small risk).
+        let purse = stats.current_purse(&self.account)?;
+        let rate = relist_fee_reserve_rate();
+        relist_fee_reserve_shortfall(flip.starting_bid, flip.target, purse, rate).map(|reserve| {
+            format!(
+                "purse {purse:.0} < buy {:.0} + reserved relist fee {reserve:.0} (~{:.1}% of {:.0})",
+                flip.starting_bid,
+                rate * 100.0,
+                flip.target
+            )
+        })
+    }
+
     async fn handle_envelope(
         &self,
         session: &RuntimeSession,
@@ -158,6 +220,17 @@ impl LiveCoflStream {
                     profit_percentage = flip.profit_percentage,
                     reason = %reason,
                     "blocked Cofl flip by local safety floor"
+                );
+            } else if let Some(reason) = self.relist_fee_reserve_violation(&flip, stats) {
+                tracing::warn!(
+                    account = %self.account,
+                    item = %flip.item_name,
+                    auction_id = ?flip.auction_id,
+                    starting_bid = flip.starting_bid,
+                    target = flip.target,
+                    profit = flip.profit,
+                    reason = %reason,
+                    "skipped Cofl flip: purse can't cover the relist fee after buying (capital-lockup guard)"
                 );
             } else if self.market_actions.allows_market_actions() && market_ready && settings_loaded
             {
@@ -750,4 +823,34 @@ pub(in crate::live_runtime) fn is_expected_blocked_chat_command(command: &str) -
         .trim_start()
         .to_ascii_lowercase()
         .starts_with("/tip ")
+}
+
+#[cfg(test)]
+mod relist_fee_reserve_tests {
+    use super::relist_fee_reserve_shortfall;
+
+    const RATE: f64 = 0.025;
+
+    #[test]
+    fn blocks_buy_that_drains_purse_below_relist_fee() {
+        // The chestplate case: spending nearly the whole purse leaves nothing for
+        // the ~2% relist fee, so the buy must be refused.
+        let shortfall = relist_fee_reserve_shortfall(78_000_000.0, 94_200_000.0, 78_000_000.0, RATE);
+        assert!(shortfall.is_some(), "should block: no fee headroom after buy");
+    }
+
+    #[test]
+    fn blocks_cheap_buy_when_purse_cannot_cover_relist_fee() {
+        // The boots case: a 5.6k buy is trivial, but a 647k purse can't cover the
+        // ~1.2M reserved fee for a 48.5M relist, so it would be stuck unlistable.
+        let shortfall = relist_fee_reserve_shortfall(5_612.0, 48_500_000.0, 647_000.0, RATE);
+        assert!(shortfall.is_some(), "should block: purse below reserved fee");
+    }
+
+    #[test]
+    fn allows_buy_with_enough_for_buy_and_fee() {
+        // Same flip, but with enough liquid coins to cover buy + the reserved fee.
+        let shortfall = relist_fee_reserve_shortfall(5_612.0, 48_500_000.0, 2_000_000.0, RATE);
+        assert!(shortfall.is_none(), "should allow: purse covers buy + fee");
+    }
 }
