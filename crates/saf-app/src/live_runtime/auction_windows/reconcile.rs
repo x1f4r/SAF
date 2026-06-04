@@ -64,6 +64,9 @@ impl LiveRuntime {
         if !is_manage_auctions_window(window) {
             return Ok(false);
         }
+        // Manage Auctions is reachable again (the account has auctions), so clear
+        // any suppression and let slot-pressure reconciles resume.
+        self.auction_management_unavailable_until.remove(account);
         tracing::debug!(
             account = %account,
             state = %entry.state.as_str(),

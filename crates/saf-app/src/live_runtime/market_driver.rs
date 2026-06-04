@@ -7,7 +7,8 @@ use super::listing_safety::unsafe_listing_entry_reason;
 use super::notifier::notify_operator_best_effort;
 use super::support::{number_value, string_value, strip_minecraft_color_codes};
 use super::{
-    CLAIM_PURCHASED_OPEN_MAX_ATTEMPTS, LiveRuntime, MARKET_STEP_NO_PROGRESS_MAX_STRIKES,
+    AUCTION_MANAGEMENT_UNAVAILABLE_BACKOFF, CLAIM_PURCHASED_OPEN_MAX_ATTEMPTS, LiveRuntime,
+    MARKET_STEP_NO_PROGRESS_MAX_STRIKES,
     MARKET_STEP_RETRY_INTERVAL, MARKET_WINDOW_SETTLE_DELAY, MISSING_LISTING_INVENTORY_MAX_ATTEMPTS,
     MISSING_LISTING_INVENTORY_RETRY_DELAY, PendingCompletionKind, PendingListingPriceMismatchRetry,
     PendingMarketStep, PendingOpenAuctionRetry, PendingUnaffordableListingRetry,
@@ -67,6 +68,10 @@ impl LiveRuntime {
                 let Some(entry) = queue
                     .iter()
                     .filter(|entry| !self.is_completion_pending(&account, entry))
+                    // Skip listings that are parked under an affordability hold so
+                    // sibling work (claimPurchased, claimSold, expired, bank) is not
+                    // starved while the listing waits for the purse to recover.
+                    .filter(|entry| !self.listing_held_for_affordability(&account, entry))
                     .find(|entry| self.session.plan_market_queue_entry(entry, None).is_some())
                     .cloned()
                 else {
@@ -160,6 +165,17 @@ impl LiveRuntime {
                 self.pending_open_auction_retries.remove(&account);
                 continue;
             };
+            // If a reconcile found the AH menu has no "Manage Auctions" button
+            // (0 auctions to manage), note it so slot-pressure reconciles back off
+            // and stop churning the GUI under the listing flow.
+            if is_reconcile_queue_entry(&entry)
+                && step.reason == "auction management unavailable"
+            {
+                self.auction_management_unavailable_until.insert(
+                    account.clone(),
+                    Instant::now() + AUCTION_MANAGEMENT_UNAVAILABLE_BACKOFF,
+                );
+            }
             tracing::debug!(
                 account = %account,
                 state = %entry.state.as_str(),
@@ -462,21 +478,32 @@ impl LiveRuntime {
     /// True while a listing is being held off because the account could not
     /// afford its auction creation fee. Lets the hold expire (so coins freed by
     /// other sales let it proceed) and drops the hold if the queue moved on.
+    /// Read-only check (for entry selection) of whether `entry` is a listing
+    /// currently parked under an active affordability hold. Mirrors
+    /// `unaffordable_listing_retry_is_pending` but never mutates, so it can run
+    /// inside the selection filter to skip the held listing and let sibling
+    /// entries proceed instead of starving them.
+    fn listing_held_for_affordability(&self, account: &AccountId, entry: &QueueEntry) -> bool {
+        if !matches!(entry.state, BotState::Listing | BotState::ListingNoName) {
+            return false;
+        }
+        let key = listing_affordability_key(entry);
+        self.pending_unaffordable_listing_retries
+            .get(account)
+            .and_then(|by_item| by_item.get(&key))
+            .is_some_and(|pending| pending.retry_at > Instant::now())
+    }
+
     fn unaffordable_listing_retry_is_pending(
         &mut self,
         account: &AccountId,
         entry: &QueueEntry,
     ) -> bool {
-        if !matches!(entry.state, BotState::Listing | BotState::ListingNoName) {
-            return false;
-        }
-        let Some(pending) = self.pending_unaffordable_listing_retries.get(account) else {
-            return false;
-        };
-        // Hold every listing for this account until the cooldown passes; once it
-        // expires, let one re-check through (the gate re-evaluates affordability
-        // and either proceeds or re-arms the hold without re-alerting).
-        pending.retry_at > Instant::now()
+        // Hold this specific listing until its cooldown passes; once it expires,
+        // let one re-check through (the gate re-evaluates affordability and either
+        // proceeds or re-arms the hold without re-alerting). Other items are not
+        // affected — affordability is judged per item.
+        self.listing_held_for_affordability(account, entry)
     }
 
     /// Refuses to attempt an auction listing the account cannot pay the creation
@@ -510,20 +537,28 @@ impl LiveRuntime {
         let Some(purse) = self.stats.current_purse(account) else {
             return Ok(false);
         };
+        let key = listing_affordability_key(entry);
         if purse >= fee {
-            // Affordable again — clear any prior hold and proceed normally.
-            self.pending_unaffordable_listing_retries.remove(account);
+            // Affordable again — clear this item's hold and proceed normally.
+            if let Some(by_item) = self.pending_unaffordable_listing_retries.get_mut(account) {
+                by_item.remove(&key);
+            }
             return Ok(false);
         }
 
-        let already_notified = self
+        let now = Instant::now();
+        let by_item = self
             .pending_unaffordable_listing_retries
-            .get(account)
-            .is_some_and(|pending| pending.notified);
-        self.pending_unaffordable_listing_retries.insert(
-            account.clone(),
+            .entry(account.clone())
+            .or_default();
+        // Drop holds whose cooldown lapsed long ago (the item almost certainly
+        // listed or sold) so the per-account map can't grow without bound.
+        by_item.retain(|_, pending| pending.retry_at + UNAFFORDABLE_LISTING_RETRY_DELAY > now);
+        let already_notified = by_item.get(&key).is_some_and(|pending| pending.notified);
+        by_item.insert(
+            key,
             PendingUnaffordableListingRetry {
-                retry_at: Instant::now() + UNAFFORDABLE_LISTING_RETRY_DELAY,
+                retry_at: now + UNAFFORDABLE_LISTING_RETRY_DELAY,
                 notified: true,
             },
         );
@@ -1190,6 +1225,16 @@ fn parse_trailing_coin_amount(line: &str) -> Option<f64> {
 
 fn format_coins(value: f64) -> String {
     saf_core::numbers::add_commas_to_number(value.round())
+}
+
+/// A stable per-listing key for affordability holds, so each item is judged
+/// independently. Prefers the inventory UUID (stable across reconcile cycles),
+/// then the auction id, then the item name.
+fn listing_affordability_key(entry: &QueueEntry) -> String {
+    string_value(&entry.action, &["inventory", "inv", "itemUuid", "itemUUID"])
+        .or_else(|| string_value(&entry.action, &["auctionID", "auctionId", "auction_id"]))
+        .or_else(|| string_value(&entry.action, &["itemName", "weirdItemName"]))
+        .unwrap_or_else(|| "listing".to_string())
 }
 
 /// A short, human-readable label for the item a listing entry is for, used in

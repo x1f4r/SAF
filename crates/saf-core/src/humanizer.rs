@@ -365,6 +365,19 @@ impl Humanizer {
         self.sample_delay(&self.config.click_stream)
     }
 
+    /// Sample a uniform random delay in `[min, max]`. Used to humanize
+    /// coarse-grained scheduling decisions — e.g. *when* to collect a sold
+    /// auction — so the timing carries no fixed pattern a watchdog could
+    /// fingerprint. Returns `min` if randomization is disabled or the range is
+    /// empty/inverted.
+    pub fn random_delay_between(&self, min: Duration, max: Duration) -> Duration {
+        if !self.config.enabled || max <= min {
+            return min;
+        }
+        let sampled = self.sample_uniform(min.as_millis() as f64, max.as_millis() as f64);
+        Duration::from_millis(sampled.round() as u64)
+    }
+
     /// Sample a normal-distributed delay using a custom config.
     pub fn sample_delay(&self, config: &NormalDelayConfig) -> Duration {
         if !self.config.enabled {

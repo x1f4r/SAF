@@ -4,12 +4,13 @@ use super::auction_flow::{
 };
 use super::{
     DEFERRED_QUEUE_RETRY_DELAY, DeferredQueueEntry, EXPIRED_RELIST_QUEUE_DELAY, LiveRuntime,
+    SOLD_COLLECTION_DELAY_MAX, SOLD_COLLECTION_DELAY_MIN,
 };
 use anyhow::Result;
 use saf_core::ports::QueueStore;
 use saf_core::{AccountId, BotState, ExpiredRelistPricing};
 use serde_json::Value;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 impl LiveRuntime {
     pub(super) async fn queue_bids_followup_if_needed(
@@ -226,27 +227,33 @@ impl LiveRuntime {
         sold: &super::stats::SoldStatsUpdate,
     ) -> Result<()> {
         let action = sold_reconcile_action(sold);
-        if let Err(error) = self
-            .queue
-            .add(
-                account,
-                action.clone(),
-                BotState::Custom("reconcileAuctions".to_string()),
-                0,
-            )
-            .await
-        {
-            tracing::warn!(
-                account = %account,
-                error = %error,
-                "failed to queue sold-message reconcile; retrying later"
-            );
-            self.defer_sold_reconcile(account, action);
-        }
+        // Don't collect the sale instantly — that fixed, near-zero reaction time
+        // is itself a fingerprint. Schedule the collection for a random point in
+        // the next ~minute (humanized) via the deferred queue, which the poll
+        // loop promotes to a real reconcile when it's due.
+        let delay = self.sold_collection_delay(account);
+        tracing::debug!(
+            account = %account,
+            delay_ms = delay.as_millis(),
+            "scheduling humanized sold-auction collection"
+        );
+        self.defer_sold_reconcile(account, action, delay);
         Ok(())
     }
 
-    fn defer_sold_reconcile(&mut self, account: &AccountId, action: Value) {
+    /// Random, per-account delay before collecting a sold auction. Drawn uniformly
+    /// from [`SOLD_COLLECTION_DELAY_MIN`, `SOLD_COLLECTION_DELAY_MAX`] using the
+    /// account's humanizer so each collection lands at an unpredictable time.
+    fn sold_collection_delay(&self, account: &AccountId) -> Duration {
+        self.account_humanizers
+            .get(account)
+            .map(|humanizer| {
+                humanizer.random_delay_between(SOLD_COLLECTION_DELAY_MIN, SOLD_COLLECTION_DELAY_MAX)
+            })
+            .unwrap_or(SOLD_COLLECTION_DELAY_MIN)
+    }
+
+    fn defer_sold_reconcile(&mut self, account: &AccountId, action: Value, delay: Duration) {
         let state = BotState::Custom("reconcileAuctions".to_string());
         if self.deferred_queue_entries.iter().any(|entry| {
             entry.account == *account && entry.state == state && entry.action == action
@@ -258,7 +265,7 @@ impl LiveRuntime {
             action,
             state,
             priority: 0,
-            ready_at: Instant::now() + DEFERRED_QUEUE_RETRY_DELAY,
+            ready_at: Instant::now() + delay,
         });
     }
 }

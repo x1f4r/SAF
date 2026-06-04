@@ -181,6 +181,13 @@ const MARKET_STEP_NO_PROGRESS_MAX_STRIKES: u8 = 3;
 const STARTUP_COFL_TELEMETRY_WAIT: Duration = Duration::from_secs(5);
 const DEFERRED_QUEUE_RETRY_DELAY: Duration = Duration::from_secs(5);
 const EXPIRED_RELIST_QUEUE_DELAY: Duration = Duration::from_secs(10);
+/// When one of our auctions sells, wait a random delay in this range before
+/// collecting the coins, instead of reacting instantly. This makes the bot look
+/// like a human who noticed the sale and collected a little while later — a
+/// random point inside the next ~minute rather than a fixed, fingerprintable
+/// reaction time.
+const SOLD_COLLECTION_DELAY_MIN: Duration = Duration::from_secs(12);
+const SOLD_COLLECTION_DELAY_MAX: Duration = Duration::from_secs(66);
 const MISSING_LISTING_INVENTORY_RETRY_DELAY: Duration = Duration::from_secs(60);
 const MISSING_LISTING_INVENTORY_MAX_ATTEMPTS: u8 = 3;
 /// How long to hold a listing back after the account was found unable to afford
@@ -188,6 +195,9 @@ const MISSING_LISTING_INVENTORY_MAX_ATTEMPTS: u8 = 3;
 /// listing is re-checked rather than dropped.
 const UNAFFORDABLE_LISTING_RETRY_DELAY: Duration = Duration::from_secs(120);
 const STARTUP_RECONCILE_QUEUE_DELAY: Duration = Duration::from_secs(5);
+/// How long to suppress slot-pressure auction reconciles after the AH menu was
+/// found to have no "Manage Auctions" button (0 auctions to manage).
+const AUCTION_MANAGEMENT_UNAVAILABLE_BACKOFF: Duration = Duration::from_secs(90);
 const STARTUP_PROFILE_SCAN_TIMEOUT: Duration = Duration::from_secs(20);
 const PURCHASE_RELIST_RETRY_DELAY: Duration = Duration::from_secs(2);
 const PURCHASE_RELIST_MAX_ATTEMPTS: u8 = 5;
@@ -260,6 +270,13 @@ pub struct LiveRuntime {
     /// `drive_forced_cookies_once`.
     cookie_force_requests: Arc<Mutex<BTreeSet<AccountId>>>,
     auction_reconcile_poller: Option<LiveAuctionReconcilePoller>,
+    /// Per-account time until which slot-pressure auction reconciles are
+    /// suppressed because the auction-house menu currently has no "Manage
+    /// Auctions" button (i.e. the account has 0 auctions, so there is nothing to
+    /// reconcile). Without this, pending listings keep re-queueing reconciles
+    /// every poll, and their /ah open/close churn resets the GUI before the
+    /// listing's create-auction window can open. Idle reconciles still re-check.
+    auction_management_unavailable_until: BTreeMap<AccountId, Instant>,
     bank_cooldowns: BankCooldownStore,
     pending_market_steps: BTreeMap<AccountId, PendingMarketStep>,
     pending_open_auction_retries: BTreeMap<AccountId, PendingOpenAuctionRetry>,
@@ -270,9 +287,12 @@ pub struct LiveRuntime {
     pending_missing_listing_inventory_retries:
         BTreeMap<AccountId, PendingMissingListingInventoryRetry>,
     pending_listing_price_mismatch_retries: BTreeMap<AccountId, PendingListingPriceMismatchRetry>,
-    /// Listings held off because the account can't afford the auction creation
-    /// fee right now. Re-checked after a delay rather than retried immediately.
-    pending_unaffordable_listing_retries: BTreeMap<AccountId, PendingUnaffordableListingRetry>,
+    /// Listings held off because their auction creation fee exceeds the purse.
+    /// Keyed per item (inner map keyed by a stable listing id) so each item's
+    /// affordability is judged independently — a cheap listing can proceed while
+    /// a pricier one waits. Re-checked after a delay rather than retried tightly.
+    pending_unaffordable_listing_retries:
+        BTreeMap<AccountId, BTreeMap<String, PendingUnaffordableListingRetry>>,
     deferred_queue_entries: Vec<DeferredQueueEntry>,
     pending_purchase_relists: Vec<PendingPurchaseRelist>,
     pending_transfer_followups: Vec<PendingTransferFollowup>,

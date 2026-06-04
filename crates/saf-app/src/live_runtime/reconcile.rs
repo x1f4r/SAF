@@ -1,10 +1,23 @@
 use super::LiveRuntime;
 use super::auction_flow::is_reconcile_queue_entry;
 use anyhow::Result;
+use rand::Rng;
 use saf_core::ports::QueueStore;
 use saf_core::{AccountId, BotState};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
+
+/// Applies ±40% uniform jitter to a base interval so the reconcile cadence is
+/// never a fixed beat a watchdog could lock onto (e.g. a 10s poll becomes a
+/// random value in ~[6s, 14s], a 2-minute idle reconcile spreads across
+/// ~[72s, 168s]).
+fn jittered_interval(base: Duration) -> Duration {
+    if base.is_zero() {
+        return base;
+    }
+    let factor = rand::thread_rng().gen_range(0.6_f64..=1.4_f64);
+    base.mul_f64(factor)
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct LiveAuctionReconcilePoller {
@@ -35,7 +48,7 @@ impl LiveAuctionReconcilePoller {
                     (
                         account.clone(),
                         AuctionReconcilePollState {
-                            next_poll_at: now + poll_interval,
+                            next_poll_at: now + jittered_interval(poll_interval),
                             last_reconcile_at: now,
                         },
                     )
@@ -45,17 +58,18 @@ impl LiveAuctionReconcilePoller {
     }
 
     pub(super) fn take_due(&mut self, account: &AccountId, now: Instant) -> bool {
+        let interval = self.poll_interval;
         let state =
             self.states
                 .entry(account.clone())
                 .or_insert_with(|| AuctionReconcilePollState {
-                    next_poll_at: now + self.poll_interval,
+                    next_poll_at: now + jittered_interval(interval),
                     last_reconcile_at: now,
                 });
         if state.next_poll_at > now {
             return false;
         }
-        state.next_poll_at = now + self.poll_interval;
+        state.next_poll_at = now + jittered_interval(interval);
         true
     }
 
@@ -69,11 +83,12 @@ impl LiveAuctionReconcilePoller {
     }
 
     pub(super) fn mark_reconciled(&mut self, account: &AccountId, now: Instant) {
+        let interval = self.poll_interval;
         let state =
             self.states
                 .entry(account.clone())
                 .or_insert_with(|| AuctionReconcilePollState {
-                    next_poll_at: now + self.poll_interval,
+                    next_poll_at: now + jittered_interval(interval),
                     last_reconcile_at: now,
                 });
         state.last_reconcile_at = now;
@@ -133,7 +148,15 @@ impl LiveRuntime {
                 .auction_reconcile_poller
                 .as_ref()
                 .is_some_and(|poller| poller.needs_idle_reconcile(&account, now));
-            let reason = if has_pending_listing || auction_slots_full {
+            // While auction management is known unavailable (0 auctions to manage),
+            // there is nothing for a slot-pressure reconcile to do, and its /ah
+            // churn fights the listing flow — so suppress it and only let the much
+            // rarer idle reconcile through to re-check.
+            let management_unavailable = self
+                .auction_management_unavailable_until
+                .get(&account)
+                .is_some_and(|until| *until > now);
+            let reason = if (has_pending_listing || auction_slots_full) && !management_unavailable {
                 Some("slot-pressure")
             } else if needs_idle_reconcile {
                 Some("regular-poll")

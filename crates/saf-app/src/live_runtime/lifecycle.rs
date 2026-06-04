@@ -389,6 +389,7 @@ impl LiveRuntime {
             pending_market_steps: BTreeMap::new(),
             pending_open_auction_retries: BTreeMap::new(),
             stale_transition_strikes: BTreeMap::new(),
+            auction_management_unavailable_until: BTreeMap::new(),
             pending_missing_listing_inventory_retries: BTreeMap::new(),
             pending_listing_price_mismatch_retries: BTreeMap::new(),
             pending_unaffordable_listing_retries: BTreeMap::new(),

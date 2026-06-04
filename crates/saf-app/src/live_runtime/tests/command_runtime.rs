@@ -1229,8 +1229,27 @@ async fn sold_chat_queues_reconciliation_through_dry_run_guard() {
     runtime.poll_minecraft_once().await.unwrap();
 
     let stats = runtime.stats.stats(&account).await.unwrap();
-    let records = runtime.dry_run_records();
     assert_eq!(stats.sold, 1);
+
+    // The sale is now collected after a humanized random delay, so it is parked
+    // in the deferred queue first instead of reconciling instantly.
+    assert!(
+        runtime.dry_run_records().is_empty(),
+        "sold collection should be scheduled (deferred), not immediate"
+    );
+    assert_eq!(runtime.deferred_queue_entries.len(), 1);
+    assert_eq!(
+        runtime.deferred_queue_entries[0].state,
+        BotState::Custom("reconcileAuctions".to_string())
+    );
+    assert_eq!(runtime.deferred_queue_entries[0].priority, 0);
+
+    // Once the scheduled time arrives, draining promotes it through the dry-run
+    // guard exactly as an immediate reconcile would have, with the same metadata.
+    runtime.deferred_queue_entries[0].ready_at = Instant::now();
+    runtime.drain_deferred_queue_entries().await.unwrap();
+
+    let records = runtime.dry_run_records();
     assert_eq!(records.len(), 1);
     assert_eq!(
         records[0].state,
