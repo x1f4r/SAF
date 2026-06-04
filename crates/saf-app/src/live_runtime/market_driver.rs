@@ -363,6 +363,20 @@ impl LiveRuntime {
             .filter(|entry| !self.is_completion_pending(account, entry))
             .find(|entry| pending_draft_listing_entry_matches(entry, &draft))
         {
+            // If the drafted item can't be listed right now (its fee exceeds the
+            // purse, so it's on an affordability hold), don't keep re-selecting it
+            // — that would let the stuck draft monopolize the create window. Yield
+            // so a different, affordable listing can take the window instead (its
+            // item-select click swaps the held item back out of the slot).
+            if self.listing_held_for_affordability(account, entry) {
+                tracing::debug!(
+                    account = %account,
+                    draft_item = %draft.item_name,
+                    draft_price = draft.list_price,
+                    "yielding the create window: the drafted item is on an affordability hold"
+                );
+                return Ok(None);
+            }
             tracing::debug!(
                 account = %account,
                 state = %entry.state.as_str(),
@@ -530,6 +544,19 @@ impl LiveRuntime {
         // planner still has to flip the "Switch to BIN" toggle first.
         if !window.title.to_ascii_lowercase().contains("bin") {
             return Ok(false);
+        }
+        // Only judge the item actually sitting in the create slot. If the window
+        // still holds a *different* item's draft (e.g. a stuck unaffordable item
+        // jamming the slot), don't gate this entry by that item's fee — let the
+        // listing flow swap the correct item into the slot first.
+        if let Some(draft) = pending_create_auction_draft(window) {
+            let entry_uuid =
+                string_value(&entry.action, &["inventory", "inv", "itemUuid", "itemUUID"]);
+            if entry_uuid
+                .is_some_and(|uuid| !uuid.eq_ignore_ascii_case(draft.item_uuid.as_str()))
+            {
+                return Ok(false);
+            }
         }
         let Some(fee) = parse_auction_creation_fee(window) else {
             return Ok(false);
