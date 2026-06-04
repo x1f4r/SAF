@@ -68,10 +68,12 @@ impl LiveRuntime {
                 let Some(entry) = queue
                     .iter()
                     .filter(|entry| !self.is_completion_pending(&account, entry))
-                    // Skip listings that are parked under an affordability hold so
-                    // sibling work (claimPurchased, claimSold, expired, bank) is not
-                    // starved while the listing waits for the purse to recover.
-                    .filter(|entry| !self.listing_held_for_affordability(&account, entry))
+                    // Skip any listing that is parked under a retry-hold (low purse,
+                    // item-not-yet-visible, price mismatch). Otherwise a single
+                    // stuck/stale listing at the head of the queue starves all the
+                    // sibling work behind it — claimPurchased, claimSold, expired,
+                    // bank — for the whole hold window.
+                    .filter(|entry| !self.listing_entry_is_retry_held(&account, entry))
                     .find(|entry| self.session.plan_market_queue_entry(entry, None).is_some())
                     .cloned()
                 else {
@@ -470,8 +472,11 @@ impl LiveRuntime {
             return false;
         };
         if pending.entry != *entry {
-            self.pending_missing_listing_inventory_retries
-                .remove(account);
+            // A different entry is being worked this poll — that's fine, but do
+            // NOT drop the hold. Removing it here let a sibling entry (a claim, a
+            // reconcile) silently reset a stuck listing's retry counter every
+            // cycle, so it never reached its attempt cap and never got cleaned up
+            // — leaving a stale listing stuck forever and starving the queue.
             return false;
         }
         if pending.retry_at <= Instant::now() {
@@ -497,6 +502,33 @@ impl LiveRuntime {
     /// `unaffordable_listing_retry_is_pending` but never mutates, so it can run
     /// inside the selection filter to skip the held listing and let sibling
     /// entries proceed instead of starving them.
+    /// Read-only check (for entry selection) of whether a listing entry is
+    /// currently parked under *any* retry-hold, so it can be skipped in favor of
+    /// sibling work instead of starving it. Covers the affordability hold (per
+    /// item) and the missing-inventory / price-mismatch retries (per account,
+    /// entry-matched).
+    fn listing_entry_is_retry_held(&self, account: &AccountId, entry: &QueueEntry) -> bool {
+        if self.listing_held_for_affordability(account, entry) {
+            return true;
+        }
+        let now = Instant::now();
+        if self
+            .pending_missing_listing_inventory_retries
+            .get(account)
+            .is_some_and(|pending| pending.entry == *entry && pending.retry_at > now)
+        {
+            return true;
+        }
+        if self
+            .pending_listing_price_mismatch_retries
+            .get(account)
+            .is_some_and(|pending| pending.entry == *entry && pending.retry_at > now)
+        {
+            return true;
+        }
+        false
+    }
+
     fn listing_held_for_affordability(&self, account: &AccountId, entry: &QueueEntry) -> bool {
         if !matches!(entry.state, BotState::Listing | BotState::ListingNoName) {
             return false;
