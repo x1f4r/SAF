@@ -25,6 +25,43 @@ impl LiveRuntime {
             return Ok(false);
         }
 
+        // Foolproof cleanup: if the item is genuinely not in the live inventory
+        // (already listed/sold, or it never arrived), the listing is stale. Drop
+        // it at once rather than looping on a retry counter — that counter keys on
+        // full-entry equality, which can vary between polls, so a stale listing
+        // could otherwise stay stuck forever and starve everything behind it.
+        let stale_item = explicit_listing_inventory_uuid(entry).filter(|uuid| looks_like_item_uuid(uuid));
+        if let Some(item_uuid) = stale_item
+            && self
+                .listing_item_absent_from_live_inventory(account, &item_uuid)
+                .await
+        {
+            self.pending_missing_listing_inventory_retries
+                .remove(account);
+            tracing::warn!(
+                account = %account,
+                inventory = %item_uuid,
+                action = ?entry.action,
+                "listing item is not in the live inventory (already listed/sold/gone); dropping the stale listing entry"
+            );
+            if let Err(error) = self
+                .session
+                .execute_market_instruction(account, &MarketInstruction::CloseWindow)
+                .await
+            {
+                tracing::warn!(
+                    account = %account,
+                    error = %error,
+                    "failed to close window while dropping a stale listing entry"
+                );
+            }
+            self.clear_active_window_cache(account)?;
+            self.pending_market_steps.remove(account);
+            self.complete_queue_entry_or_defer(account, entry, PendingCompletionKind::CountOnly)
+                .await?;
+            return Ok(true);
+        }
+
         let attempts = self
             .pending_missing_listing_inventory_retries
             .get(account)
@@ -140,6 +177,31 @@ impl LiveRuntime {
         Ok(true)
     }
 
+    /// Reads the live (passively-synced) inventory and reports whether `item_uuid`
+    /// is absent from it. Returns `false` if the inventory can't be read, so a
+    /// transient read failure never causes a real listing to be dropped.
+    async fn listing_item_absent_from_live_inventory(
+        &self,
+        account: &AccountId,
+        item_uuid: &str,
+    ) -> bool {
+        match self.session.inventory_snapshot(account).await {
+            Ok(snapshot) => !snapshot.items.iter().any(|item| {
+                item.uuid
+                    .as_deref()
+                    .is_some_and(|uuid| uuid.eq_ignore_ascii_case(item_uuid))
+            }),
+            Err(error) => {
+                tracing::debug!(
+                    account = %account,
+                    error = %error,
+                    "could not read live inventory to validate a listing item; will retry instead of dropping"
+                );
+                false
+            }
+        }
+    }
+
     fn remember_missing_listing_inventory_retry(
         &mut self,
         account: &AccountId,
@@ -194,6 +256,13 @@ impl LiveRuntime {
             .await?;
         Ok(())
     }
+}
+
+/// Cheap check that a value looks like a SkyBlock item UUID (dashed, ~36 chars),
+/// so we only run the live-inventory "is it gone?" drop for real per-item UUIDs —
+/// never for tag-style fallbacks, which would risk dropping a present item.
+fn looks_like_item_uuid(value: &str) -> bool {
+    value.len() >= 32 && value.contains('-')
 }
 
 fn missing_listing_inventory_uuid(entry: &QueueEntry, window: &WindowSnapshot) -> bool {
