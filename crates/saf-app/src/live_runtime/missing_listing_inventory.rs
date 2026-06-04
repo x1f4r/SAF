@@ -44,18 +44,9 @@ impl LiveRuntime {
                 action = ?entry.action,
                 "listing item is not in the live inventory (already listed/sold/gone); dropping the stale listing entry"
             );
-            if let Err(error) = self
-                .session
-                .execute_market_instruction(account, &MarketInstruction::CloseWindow)
-                .await
-            {
-                tracing::warn!(
-                    account = %account,
-                    error = %error,
-                    "failed to close window while dropping a stale listing entry"
-                );
-            }
-            self.clear_active_window_cache(account)?;
+            // Free the create slot on the way out in case a foreign item is jamming it.
+            self.close_create_auction_window_freeing_slot(account, Some(window))
+                .await?;
             self.pending_market_steps.remove(account);
             self.complete_queue_entry_or_defer(account, entry, PendingCompletionKind::CountOnly)
                 .await?;

@@ -18,7 +18,13 @@ use anyhow::Result;
 use saf_core::gui::WindowSnapshot;
 use saf_core::ports::{Notification, NotificationKind, QueueStore};
 use saf_core::{AccountId, BotState, MarketInstruction, QueueEntry};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::time::sleep;
+
+/// Settle delay between pulling a listing item out of the create-auction slot and
+/// closing the window, so the server registers the item returning to the
+/// inventory first.
+const CREATE_SLOT_PULL_SETTLE: Duration = Duration::from_millis(180);
 
 impl LiveRuntime {
     pub(super) async fn process_market_queue_once(&mut self) -> Result<()> {
@@ -552,6 +558,63 @@ impl LiveRuntime {
         self.listing_held_for_affordability(account, entry)
     }
 
+    /// Closes a create-auction window, first pulling any item out of the create
+    /// slot so it returns to the inventory. On Hypixel a half-finished listing
+    /// leaves its item *in the create slot* — closing the menu does NOT return it
+    /// to your bags, and that one slot then stays full, blocking every future
+    /// listing until the item is manually pulled out. So whenever we abandon a
+    /// listing (can't afford the fee, gave up after repeated failures, etc.) we
+    /// left-click the item out of the slot (the same mechanic the bot uses to put
+    /// it in) before closing, leaving the slot free and the item safely in the
+    /// inventory.
+    pub(super) async fn close_create_auction_window_freeing_slot(
+        &mut self,
+        account: &AccountId,
+        window: Option<&WindowSnapshot>,
+    ) -> Result<()> {
+        if let Some(draft) = window.and_then(pending_create_auction_draft) {
+            tracing::info!(
+                account = %account,
+                item = %draft.item_name,
+                slot = draft.item_slot,
+                "pulling the listing item out of the create-auction slot so it doesn't jam the slot"
+            );
+            if let Err(error) = self
+                .session
+                .execute_market_instruction(
+                    account,
+                    &MarketInstruction::ClickSlot {
+                        slot: draft.item_slot,
+                    },
+                )
+                .await
+            {
+                tracing::warn!(
+                    account = %account,
+                    error = %error,
+                    "failed to pull the item out of the create-auction slot"
+                );
+            } else {
+                // Brief settle so the server registers the item moving back to the
+                // inventory before we close the window.
+                sleep(CREATE_SLOT_PULL_SETTLE).await;
+            }
+        }
+        if let Err(error) = self
+            .session
+            .execute_market_instruction(account, &MarketInstruction::CloseWindow)
+            .await
+        {
+            tracing::warn!(
+                account = %account,
+                error = %error,
+                "failed to close create-auction window"
+            );
+        }
+        self.clear_active_window_cache(account)?;
+        Ok(())
+    }
+
     /// Refuses to attempt an auction listing the account cannot pay the creation
     /// fee for. Clicking "Create Auction" with too few coins silently fails and
     /// leaves the window open, which previously drove an endless submit-retry
@@ -630,18 +693,10 @@ impl LiveRuntime {
             retry_after_ms = UNAFFORDABLE_LISTING_RETRY_DELAY.as_millis(),
             "skipping listing: account cannot afford the auction creation fee"
         );
-        if let Err(error) = self
-            .session
-            .execute_market_instruction(account, &MarketInstruction::CloseWindow)
-            .await
-        {
-            tracing::warn!(
-                account = %account,
-                error = %error,
-                "failed to close create-auction window after unaffordable listing fee"
-            );
-        }
-        self.clear_active_window_cache(account)?;
+        // Pull the item back out of the create slot before closing, so the
+        // unaffordable item doesn't sit in the slot jamming every other listing.
+        self.close_create_auction_window_freeing_slot(account, Some(window))
+            .await?;
         self.pending_market_steps.remove(account);
         if !already_notified {
             let item = listing_entry_item_label(entry);
@@ -1190,18 +1245,15 @@ impl LiveRuntime {
         if is_listing {
             self.queue_listing_status_reconcile(account, entry).await?;
         }
-        if let Err(error) = self
-            .session
-            .execute_market_instruction(account, &MarketInstruction::CloseWindow)
-            .await
-        {
-            tracing::warn!(
-                account = %account,
-                error = %error,
-                "failed to close window while aborting a stuck market step"
-            );
-        }
-        self.clear_active_window_cache(account)?;
+        // If the failed listing left its item jammed in the create slot, pull it
+        // back out before closing so it doesn't block the next listing.
+        let active_window = self
+            .active_windows
+            .lock()
+            .ok()
+            .and_then(|windows| windows.get(account).cloned());
+        self.close_create_auction_window_freeing_slot(account, active_window.as_ref())
+            .await?;
         self.pending_market_steps.remove(account);
         self.complete_queue_entry_or_defer(account, entry, PendingCompletionKind::CountOnly)
             .await?;

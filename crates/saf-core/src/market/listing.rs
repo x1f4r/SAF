@@ -126,6 +126,17 @@ fn plan_create_listing_window(
         );
     }
     if !listing_item_selected(window, selector) {
+        // If a *different* item is jamming the create-auction item slot (a leftover
+        // from a half-finished listing), pull it out first. Hypixel will not swap a
+        // new item into an occupied slot, so the slot must be cleared before ours
+        // can go in — left-clicking the slot moves the stuck item back to the
+        // inventory, exactly as a player would do it by hand.
+        if let Some(slot) = foreign_item_in_create_slot(window, selector) {
+            return MarketStep::next(
+                MarketInstruction::ClickSlot { slot },
+                "clear foreign item from create-auction slot".to_string(),
+            );
+        }
         if let Some(slot) = listing_inventory_item_slot(window, selector) {
             return MarketStep::next(
                 MarketInstruction::ClickSlot { slot },
@@ -250,6 +261,25 @@ fn listing_item_selected(window: &WindowSnapshot, selector: ListingSelector<'_>)
         .slots
         .iter()
         .any(|slot| slot.slot == 13 && slot_matches_listing_selector(slot, selector))
+}
+
+/// Returns slot 13 when it holds a real item (one carrying its own UUID) that is
+/// NOT the item we intend to list — i.e. a foreign item jamming the create slot.
+/// Only flags items with a concrete UUID, so it never mistakes the empty-slot
+/// placeholder, or our own item under a fuzzy name/tag match, for a jam.
+fn foreign_item_in_create_slot(
+    window: &WindowSnapshot,
+    selector: ListingSelector<'_>,
+) -> Option<usize> {
+    window
+        .slots
+        .iter()
+        .find(|slot| {
+            slot.slot == 13
+                && slot.item_uuid.is_some()
+                && !slot_matches_listing_selector(slot, selector)
+        })
+        .map(|slot| slot.slot)
 }
 
 fn listing_inventory_item_slot(

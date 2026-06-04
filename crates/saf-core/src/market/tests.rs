@@ -591,6 +591,43 @@ fn listing_workflow_submits_in_bin_mode_without_switching() {
 }
 
 #[test]
+fn listing_workflow_clears_foreign_item_jamming_the_create_slot() {
+    // A leftover item from a previous half-finished listing is stuck in the
+    // create-auction item slot (slot 13). The item we want to list is in the
+    // inventory area. The bot must pull the foreign item out of slot 13 first —
+    // Hypixel won't swap a new item into an occupied slot.
+    let workflow = MarketWorkflow::ListItem {
+        item_uuid: ItemUuid::new("wanted-uuid").unwrap(),
+        price: 10_000_000.0,
+        hours: 48.0,
+    };
+    let window = WindowSnapshot {
+        title: "Create BIN Auction".to_string(),
+        slots: vec![
+            WindowSlot {
+                slot: 13,
+                name: "diamond_chestplate".to_string(),
+                display_name: "Some Other Stuck Item".to_string(),
+                lore: Vec::new(),
+                item_uuid: Some("foreign-uuid".to_string()),
+            },
+            WindowSlot {
+                slot: 20,
+                name: "diamond_sword".to_string(),
+                display_name: "Wanted Sword".to_string(),
+                lore: Vec::new(),
+                item_uuid: Some("wanted-uuid".to_string()),
+            },
+        ],
+    };
+
+    assert_eq!(
+        workflow.next_step(Some(&window)).instruction,
+        MarketInstruction::ClickSlot { slot: 13 }
+    );
+}
+
+#[test]
 fn listing_workflow_uses_inventory_field_for_claimed_purchase() {
     let entry = QueueEntry {
         action: json!({
